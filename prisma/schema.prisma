@@ -1,0 +1,126 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+//ENUMS
+
+enum KycStatus{
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum MobileMoneyProvider{
+  AIRTEL
+  TNM
+}
+
+enum SavingsType{
+  TIME_BASED
+  TARGET_BASED
+}
+
+enum SavingsStatus{
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  PAUSED
+}
+
+enum WithdrawPolicy{
+  LOCKED
+  FLEXIBLE
+}
+
+enum TransactionStatus{
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  REVERSED
+}
+
+enum PaymentStatus{
+  INITIATED
+  PENDING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+ENUM WebhookStatus{
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+model User{
+  id String @id @default(cuid())
+  firstName String
+  lastName String
+  fullName String
+  email String @unique
+  phoneNumber String @unique
+  passwordHash String
+  kycStatus kycStatus @default(PENDING)
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  kycVerification kycVerification?
+  mobileMoneyAccounts mobileMoneyAccount[]
+  savingsAccounts savingsAccount[]
+  auditLogs auditLog[]
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+model KycVerification{
+  id String @id default(cuid())
+  userId String @unique
+  user user @relation(fields:[userId], references:[id], onDelete:Cascade)
+  idType String
+  idNumber String
+  status KycStatus @default(PENDING)
+  verifiedAt DateTime?
+  rejectedReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map ("kyc_verifications")
+}
+
+model savingsAccount{
+  id String @id @default(cuid())
+  userId String
+  user user@relation(fields:[userId], references:[id], onDelete:Cascade)
+  name String
+  type SavingsType
+  status SavingsStatus @default(ACTIVE)
+  balance Decimal @default(0) @db.decimal(18,20)
+  WithdrawPolicy WithdrawPolicy
+  penaltyPercentage Decimal @default(5) @db.decimal(5,2)
+  maturedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  timeBasedDetails TimeBasedSavings?
+  targetBasedDetails TargetBasedSavings?
+  transactions Transaction[]
+  @@index([userId])
+  @@index ([status])
+
+  @@map ("savings_accounts)
+
+}
+
+
