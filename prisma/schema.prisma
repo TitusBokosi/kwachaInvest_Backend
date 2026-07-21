@@ -58,10 +58,14 @@ enum PaymentStatus{
   CANCELLED
 }
 
-ENUM WebhookStatus{
+enum WebhookStatus{
   RECEIVED
   PROCESSED
   FAILED
+}
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
 }
 
 model User{
@@ -122,5 +126,198 @@ model savingsAccount{
   @@map ("savings_accounts)
 
 }
+ model TimeBasedSavings{
+  id String @ID @default(cuid())
+  savingsAccountId String @unique
+  savingsAccount savingsAccount @relation (fields:[savingsAccountId], references:[id], onDelete:Cascade)
+  startDate DateTime @default(now())
+  maturityDate DateTime
+  @@map("time_based_savings")
+ }
+
+ model TargetBasedSavings{
+  id String @id @default(cuid())
+  savingsAccountId String @unique
+  savingsAccount savingsAccount @relation(fields:[savingsAccountId], references:[id], onDelete:Cascade)
+  target Decimal @db.Decimal(18,2)
+  @@map("target_based_savings")
+ }
+
+model Transaction{
+  id String @id @default(cuid())
+  date DateTime @default(now())
+  from String?
+  to String?
+  savingsAccountId String @unique
+  savingsAccount savingsAccount @relation(fields:[savingsAccountId], references:[id], onDelete:Restrict)
+type TransactionType
+amount Decimal @db.Decimal(18,2)
+status TransactionStatus @default (PENDING)
+providerReference String?
+idempotencyKey String @unique
+createdAt DateTime @default(now())
+updatedAt DateTime @updatedAt
+  paymentGatewayTransaction PaymentGatewayTransaction?
 
 
+
+  @@index([savingsAccountId])
+
+  @@index([mobileMoneyAccountId])
+
+  @@index([status])
+
+
+  @@map("transactions")
+
+}
+
+
+model PaymentGatewayTransaction {
+
+
+  id String @id @default(cuid())
+
+
+  transactionId String @unique
+
+
+  transaction Transaction @relation(
+    fields:[transactionId],
+    references:[id],
+    onDelete:Cascade
+  )
+
+
+
+  provider MobileMoneyProvider
+
+
+
+  gatewayReference String?
+
+
+
+  status PaymentStatus
+    @default(INITIATED)
+
+
+
+  responsePayload Json?
+
+
+
+  webhookEvents WebhookEvent[]
+
+
+
+  createdAt DateTime @default(now())
+
+
+  updatedAt DateTime @updatedAt
+
+
+
+  @@map("payment_gateway_transactions")
+
+}
+
+
+
+
+model WebhookEvent {
+
+
+  id String @id @default(cuid())
+
+
+
+  paymentGatewayTransactionId String
+
+
+
+  paymentGatewayTransaction PaymentGatewayTransaction @relation(
+    fields:[paymentGatewayTransactionId],
+    references:[id],
+    onDelete:Cascade
+  )
+
+
+
+  providerEventId String @unique
+
+
+
+  payload Json
+
+
+
+  status WebhookStatus
+    @default(RECEIVED)
+
+
+
+  receivedAt DateTime @default(now())
+
+
+  processedAt DateTime?
+
+
+
+  errorMessage String?
+
+
+
+  @@index([status])
+
+
+  @@map("webhook_events")
+}
+
+
+
+model AuditLog {
+
+  id String @id @default(cuid())
+
+
+  userId String?
+
+
+  user User? @relation(
+    fields:[userId],
+    references:[id],
+    onDelete:SetNull
+  )
+
+
+
+  action String
+
+
+  entityType String
+
+
+  entityId String
+
+
+  metadata Json?
+
+
+
+  createdAt DateTime @default(now())
+
+
+
+  @@index([userId])
+
+
+  @@index([
+    entityType,
+    entityId
+  ])
+
+
+  @@map("audit_logs")
+
+}
