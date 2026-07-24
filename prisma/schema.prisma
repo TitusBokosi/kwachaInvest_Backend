@@ -1,7 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// This is your Prisma schema file.
+// Learn more: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client"
@@ -11,38 +9,44 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+// ============================================================================
+// ENUMS
+// ============================================================================
 
-//ENUMS
-
-enum KycStatus{
+enum KycStatus {
   PENDING
   VERIFIED
   REJECTED
 }
 
-enum MobileMoneyProvider{
+enum MobileMoneyProvider {
   AIRTEL
   TNM
 }
 
-enum SavingsType{
+enum SavingsType {
   TIME_BASED
   TARGET_BASED
 }
 
-enum SavingsStatus{
+enum SavingsStatus {
   ACTIVE
   COMPLETED
   CANCELLED
   PAUSED
 }
 
-enum WithdrawPolicy{
+enum WithdrawalPolicy {
   LOCKED
   FLEXIBLE
 }
 
-enum TransactionStatus{
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+}
+
+enum TransactionStatus {
   PENDING
   PROCESSING
   SUCCESS
@@ -50,7 +54,7 @@ enum TransactionStatus{
   REVERSED
 }
 
-enum PaymentStatus{
+enum PaymentStatus {
   INITIATED
   PENDING
   SUCCESS
@@ -58,266 +62,255 @@ enum PaymentStatus{
   CANCELLED
 }
 
-enum WebhookStatus{
+enum WebhookStatus {
   RECEIVED
   PROCESSED
   FAILED
 }
-enum TransactionType {
-  DEPOSIT
-  WITHDRAWAL
-}
 
-model User{
-  id String @id @default(cuid())
-  firstName String
-  lastName String
-  fullName String
-  email String @unique
-  phoneNumber String @unique
+// ============================================================================
+// USERS
+// ============================================================================
+
+model User {
+  id           String   @id @default(cuid())
+  firstName    String
+  lastName     String
+  fullName     String
+  email        String   @unique
+  phoneNumber  String   @unique
   passwordHash String
-  kycStatus kycStatus @default(PENDING)
-  isActive Boolean @default(true)
+
+  kycStatus KycStatus @default(PENDING)
+  isActive  Boolean   @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  kycVerification kycVerification?
-  mobileMoneyAccounts mobileMoneyAccount[]
-  savingsAccounts savingsAccount[]
-  auditLogs auditLog[]
+
+  kycVerification     KycVerification?
+  mobileMoneyAccounts MobileMoneyAccount[]
+  savingsAccounts     SavingsAccount[]
+  auditLogs           AuditLog[]
+
   @@index([email])
-  @@index([phone])
+  @@index([phoneNumber])
   @@map("users")
 }
 
-model KycVerification{
-  id String @id default(cuid())
+// ============================================================================
+// KYC
+// ============================================================================
+
+model KycVerification {
+  id String @id @default(cuid())
+
   userId String @unique
-  user user @relation(fields:[userId], references:[id], onDelete:Cascade)
-  idType String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  idType   String
   idNumber String
+
   status KycStatus @default(PENDING)
-  verifiedAt DateTime?
+
+  verifiedAt     DateTime?
   rejectedReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map ("kyc_verifications")
+  @@map("kyc_verifications")
 }
 
-model savingsAccount{
+// ============================================================================
+// MOBILE MONEY
+// ============================================================================
+
+model MobileMoneyAccount {
   id String @id @default(cuid())
+
   userId String
-  user user@relation(fields:[userId], references:[id], onDelete:Cascade)
-  name String
-  type SavingsType
-  status SavingsStatus @default(ACTIVE)
-  balance Decimal @default(0) @db.decimal(18,20)
-  WithdrawPolicy WithdrawPolicy
-  penaltyPercentage Decimal @default(5) @db.decimal(5,2)
-  maturedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  timeBasedDetails TimeBasedSavings?
-  targetBasedDetails TargetBasedSavings?
-  transactions Transaction[]
-  @@index([userId])
-  @@index ([status])
-
-  @@map ("savings_accounts)
-
-}
- model TimeBasedSavings{
-  id String @ID @default(cuid())
-  savingsAccountId String @unique
-  savingsAccount savingsAccount @relation (fields:[savingsAccountId], references:[id], onDelete:Cascade)
-  startDate DateTime @default(now())
-  maturityDate DateTime
-  @@map("time_based_savings")
- }
-
- model TargetBasedSavings{
-  id String @id @default(cuid())
-  savingsAccountId String @unique
-  savingsAccount savingsAccount @relation(fields:[savingsAccountId], references:[id], onDelete:Cascade)
-  target Decimal @db.Decimal(18,2)
-  @@map("target_based_savings")
- }
-
-model Transaction{
-  id String @id @default(cuid())
-  date DateTime @default(now())
-  from String?
-  to String?
-  savingsAccountId String @unique
-  savingsAccount savingsAccount @relation(fields:[savingsAccountId], references:[id], onDelete:Restrict)
-type TransactionType
-amount Decimal @db.Decimal(18,2)
-status TransactionStatus @default (PENDING)
-providerReference String?
-idempotencyKey String @unique
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
-  paymentGatewayTransaction PaymentGatewayTransaction?
-
-
-
-  @@index([savingsAccountId])
-
-  @@index([mobileMoneyAccountId])
-
-  @@index([status])
-
-
-  @@map("transactions")
-
-}
-
-
-model PaymentGatewayTransaction {
-
-
-  id String @id @default(cuid())
-
-
-  transactionId String @unique
-
-
-  transaction Transaction @relation(
-    fields:[transactionId],
-    references:[id],
-    onDelete:Cascade
-  )
-
-
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   provider MobileMoneyProvider
 
+  phoneNumber String
 
+  isVerified Boolean @default(false)
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, phoneNumber])
+  @@index([userId])
+  @@map("mobile_money_accounts")
+}
+
+// ============================================================================
+// SAVINGS
+// ============================================================================
+
+model SavingsAccount {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name String
+
+  type SavingsType
+
+  status SavingsStatus @default(ACTIVE)
+
+  balance Decimal @default(0) @db.Decimal(18, 2)
+
+  withdrawalPolicy WithdrawalPolicy
+
+  penaltyPercentage Decimal @default(5) @db.Decimal(5, 2)
+
+  maturedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  timeBasedDetails   TimeBasedSavings?
+  targetBasedDetails TargetBasedSavings?
+
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("savings_accounts")
+}
+
+model TimeBasedSavings {
+  id String @id @default(cuid())
+
+  savingsAccountId String         @unique
+  savingsAccount   SavingsAccount @relation(fields: [savingsAccountId], references: [id], onDelete: Cascade)
+
+  startDate DateTime @default(now())
+
+  maturityDate DateTime
+
+  @@map("time_based_savings")
+}
+
+model TargetBasedSavings {
+  id String @id @default(cuid())
+
+  savingsAccountId String         @unique
+  savingsAccount   SavingsAccount @relation(fields: [savingsAccountId], references: [id], onDelete: Cascade)
+
+  target Decimal @db.Decimal(18, 2)
+
+  @@map("target_based_savings")
+}
+
+// ============================================================================
+// TRANSACTIONS
+// ============================================================================
+
+model Transaction {
+  id String @id @default(cuid())
+
+  savingsAccountId String
+  savingsAccount   SavingsAccount @relation(fields: [savingsAccountId], references: [id], onDelete: Restrict)
+
+  mobileMoneyAccountId String
+  mobileMoneyAccount   MobileMoneyAccount @relation(fields: [mobileMoneyAccountId], references: [id], onDelete: Restrict)
+
+  type TransactionType
+
+  amount Decimal @db.Decimal(18, 2)
+
+  status TransactionStatus @default(PENDING)
+
+  providerReference String? @unique
+
+  idempotencyKey String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  paymentGatewayTransaction PaymentGatewayTransaction?
+
+  @@index([savingsAccountId])
+  @@index([mobileMoneyAccountId])
+  @@index([status])
+  @@map("transactions")
+}
+
+// ============================================================================
+// PAYMENT GATEWAY
+// ============================================================================
+
+model PaymentGatewayTransaction {
+  id String @id @default(cuid())
+
+  transactionId String      @unique
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  provider MobileMoneyProvider
 
   gatewayReference String?
 
-
-
-  status PaymentStatus
-    @default(INITIATED)
-
-
+  status PaymentStatus @default(INITIATED)
 
   responsePayload Json?
 
-
-
   webhookEvents WebhookEvent[]
 
-
-
   createdAt DateTime @default(now())
-
-
   updatedAt DateTime @updatedAt
 
-
-
   @@map("payment_gateway_transactions")
-
 }
 
-
-
-
 model WebhookEvent {
-
-
   id String @id @default(cuid())
 
-
-
   paymentGatewayTransactionId String
-
-
-
-  paymentGatewayTransaction PaymentGatewayTransaction @relation(
-    fields:[paymentGatewayTransactionId],
-    references:[id],
-    onDelete:Cascade
-  )
-
-
+  paymentGatewayTransaction   PaymentGatewayTransaction @relation(fields: [paymentGatewayTransactionId], references: [id], onDelete: Cascade)
 
   providerEventId String @unique
 
-
-
   payload Json
 
-
-
-  status WebhookStatus
-    @default(RECEIVED)
-
-
+  status WebhookStatus @default(RECEIVED)
 
   receivedAt DateTime @default(now())
 
-
   processedAt DateTime?
-
-
 
   errorMessage String?
 
-
-
   @@index([status])
-
-
   @@map("webhook_events")
 }
 
-
+// ============================================================================
+// AUDIT LOGS
+// ============================================================================
 
 model AuditLog {
-
   id String @id @default(cuid())
 
-
   userId String?
-
-
-  user User? @relation(
-    fields:[userId],
-    references:[id],
-    onDelete:SetNull
-  )
-
-
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   action String
 
-
   entityType String
-
 
   entityId String
 
-
   metadata Json?
-
-
 
   createdAt DateTime @default(now())
 
-
-
   @@index([userId])
-
-
-  @@index([
-    entityType,
-    entityId
-  ])
-
-
+  @@index([entityType, entityId])
   @@map("audit_logs")
-
 }
