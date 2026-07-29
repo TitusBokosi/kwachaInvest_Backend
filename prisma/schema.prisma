@@ -13,6 +13,11 @@ datasource db {
 // ENUMS
 // ============================================================================
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 enum KycStatus {
   PENDING
   VERIFIED
@@ -34,6 +39,7 @@ enum SavingsStatus {
   COMPLETED
   CANCELLED
   PAUSED
+  FROZEN
 }
 
 enum WithdrawalPolicy {
@@ -68,6 +74,10 @@ enum WebhookStatus {
   FAILED
 }
 
+enum OtpPurpose {
+  PASSWORD_RESET
+}
+
 // ============================================================================
 // USERS
 // ============================================================================
@@ -81,6 +91,8 @@ model User {
   phoneNumber  String   @unique
   passwordHash String
 
+  role UserRole @default(USER)
+
   kycStatus KycStatus @default(PENDING)
   isActive  Boolean   @default(true)
 
@@ -91,10 +103,60 @@ model User {
   mobileMoneyAccounts MobileMoneyAccount[]
   savingsAccounts     SavingsAccount[]
   auditLogs           AuditLog[]
+  authSessions        AuthSession[]
+  otpCodes            OtpCode[]
 
   @@index([email])
   @@index([phoneNumber])
   @@map("users")
+}
+
+// ============================================================================
+// AUTH
+// ============================================================================
+
+model AuthSession {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // SHA-256 hash of the refresh token — the raw token is only ever returned
+  // to the client once, at login/refresh time, and never stored.
+  tokenHash String @unique
+
+  deviceInfo String?
+  ipAddress  String?
+
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("auth_sessions")
+}
+
+model OtpCode {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // bcrypt hash of the OTP — unlike the refresh token above, OTPs are
+  // low-entropy (6 digits), so a slow hash is used to resist brute force.
+  codeHash String
+
+  purpose OtpPurpose
+
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose])
+  @@map("otp_codes")
 }
 
 // ============================================================================
