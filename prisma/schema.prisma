@@ -78,6 +78,11 @@ enum OtpPurpose {
   PASSWORD_RESET
 }
 
+enum PaymentMode {
+  HOSTED_CHECKOUT
+  DIRECT_MOBILE_MONEY
+}
+
 // ============================================================================
 // USERS
 // ============================================================================
@@ -185,6 +190,11 @@ model KycVerification {
 
 // ============================================================================
 // MOBILE MONEY
+//
+// This is now a "saved payment method" — a convenience record created AFTER
+// a successful Direct Charge, not a prerequisite the user sets up in advance.
+// A deposit can supply provider + phoneNumber fresh every time; savedAccount
+// is optional and just lets the client skip re-typing a number next time.
 // ============================================================================
 
 model MobileMoneyAccount {
@@ -195,8 +205,16 @@ model MobileMoneyAccount {
 
   provider MobileMoneyProvider
 
+  // PayChangu's own opaque id for this operator (mobile_money_operator_ref_id)
+  // — cached here so a repeat Direct Charge against a saved method doesn't
+  // need to re-fetch GET /mobile-money every time.
+  operatorRefId String
+
   phoneNumber String
 
+  // True once at least one Direct Charge against this provider+phoneNumber
+  // has actually succeeded — a real successful charge is a stronger
+  // verification signal than a separate upfront OTP step would be.
   isVerified Boolean @default(false)
 
   transactions Transaction[]
@@ -204,7 +222,10 @@ model MobileMoneyAccount {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([provider, phoneNumber])
+  // Scoped to the user — the old global @@unique([provider, phoneNumber])
+  // would have meant only one user in the entire system could ever save a
+  // given phone number, which is wrong; a number is only unique per-user here.
+  @@unique([userId, provider, phoneNumber])
   @@index([userId])
   @@map("mobile_money_accounts")
 }
@@ -280,8 +301,14 @@ model Transaction {
   savingsAccountId String
   savingsAccount   SavingsAccount @relation(fields: [savingsAccountId], references: [id], onDelete: Restrict)
 
-  mobileMoneyAccountId String
-  mobileMoneyAccount   MobileMoneyAccount @relation(fields: [mobileMoneyAccountId], references: [id], onDelete: Restrict)
+  // Optional — only set if the deposit reused a saved payment method.
+  // The actual provider/phoneNumber charged are captured below regardless,
+  // since Direct Charge always requires them fresh at charge time.
+  mobileMoneyAccountId String?
+  mobileMoneyAccount   MobileMoneyAccount? @relation(fields: [mobileMoneyAccountId], references: [id], onDelete: SetNull)
+
+  provider MobileMoneyProvider
+  payerPhoneNumber String
 
   type TransactionType
 
@@ -314,12 +341,15 @@ model PaymentGatewayTransaction {
   transactionId String      @unique
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
-  provider MobileMoneyProvider
+  mode PaymentMode
 
+  // PayChangu's own charge_id / tx reference for this charge.
   gatewayReference String?
 
   status PaymentStatus @default(INITIATED)
 
+  // Raw response from PayChangu's initialize + verify calls, kept for
+  // replay/audit and to avoid losing anything we didn't explicitly model.
   responsePayload Json?
 
   webhookEvents WebhookEvent[]
