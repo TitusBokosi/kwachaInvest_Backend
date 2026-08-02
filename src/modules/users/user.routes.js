@@ -1,22 +1,27 @@
 import { Router } from "express";
 import * as userController from "./user.controller.js";
-import { authenticate } from "../../middleware/auth.middleware.js";
-import { authorize } from "../../middleware/role.middleware.js";
-import { validate } from "../../middleware/validate.middleware.js";
-import * as userValidation from "./user.validator.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { authorize } from "../../middlewares/role.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { registerRateLimiter } from "../../middlewares/rateLimit.middleware.js";
+import * as userValidator from "./user.validator.js";
 
 const router = Router();
 
-
+// ---------------------------------------------------------------------------
+// Public
+// ---------------------------------------------------------------------------
 
 router.post(
   "/register",
-  validate(userValidation.registerSchema),
+  registerRateLimiter,
+  validate(userValidator.registerSchema),
   userController.register
 );
 
+// ---------------------------------------------------------------------------
 // Self-service (authenticated user, any role)
-
+// ---------------------------------------------------------------------------
 
 router.use(authenticate);
 
@@ -25,56 +30,57 @@ router.get("/me/profile", userController.getMyProfile);
 
 router.patch(
   "/me",
-  validate(userValidation.updateMeSchema),
+  validate(userValidator.updateMeSchema),
   userController.updateMe
 );
 
 router.post(
   "/me/change-password",
-  validate(userValidation.changePasswordSchema),
+  validate(userValidator.changePasswordSchema),
   userController.changeMyPassword
 );
 
 router.delete("/me", userController.deactivateMe);
 
-
+// ---------------------------------------------------------------------------
 // Admin-only
-
+// ---------------------------------------------------------------------------
 
 router.use(authorize("ADMIN"));
 
 router.get(
   "/search",
-  validate(userValidation.searchUsersSchema),
+  validate(userValidator.searchUsersSchema),
   userController.searchUsers
 );
 
 router.get(
   "/",
-  validate(userValidation.listUsersSchema),
+  validate(userValidator.listUsersSchema),
   userController.listUsers
 );
 
 router.get(
   "/:id",
-  validate(userValidation.userIdParamSchema),
+  validate(userValidator.userIdParamSchema),
   userController.getUserById
 );
 
 router.patch(
   "/:id/deactivate",
-  validate(userValidation.userIdParamSchema),
+  validate(userValidator.userIdParamSchema),
   userController.deactivateUserById
 );
 
 router.patch(
   "/:id/reactivate",
-  validate(userValidation.userIdParamSchema),
+  validate(userValidator.userIdParamSchema),
   userController.reactivateUserById
 );
+
 router.patch(
   "/:id/role",
-  validate(userValidation.updateUserRoleSchema),
+  validate(userValidator.updateUserRoleSchema),
   userController.updateUserRole
 );
 

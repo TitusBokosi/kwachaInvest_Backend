@@ -1,59 +1,59 @@
-import { Router } from 'express';
-import * as savingsController from './savings.controller.js';
-import { authenticate } from '../../middlewares/auth.middleware.js';
-import { validate } from '../../middlewares/validate.middleware.js';
-import * as savingsValidator from './savings.validator.js';
+import { Router } from "express";
+import * as savingsController from "./savings.controller.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import * as savingsValidator from "./savings.validator.js";
 
 const router = Router();
 
 router.use(authenticate);
 
 router.post(
-  '/time-based',
+  "/time-based",
   validate(savingsValidator.createTimeBasedSavingsSchema),
-  savingsController.createTimeBasedSavings,
+  savingsController.createTimeBasedSavings
 );
 
 router.post(
-  '/target-based',
+  "/target-based",
   validate(savingsValidator.createTargetBasedSavingsSchema),
-  savingsController.createTargetBasedSavings,
+  savingsController.createTargetBasedSavings
 );
 
 router.get(
-  '/',
+  "/",
   validate(savingsValidator.listMySavingsAccountsSchema),
-  savingsController.listMySavingsAccounts,
+  savingsController.listMySavingsAccounts
 );
 
 router.get(
-  '/:id',
+  "/:id",
   validate(savingsValidator.savingsAccountIdParamSchema),
-  savingsController.getMySavingsAccountById,
+  savingsController.getMySavingsAccountById
 );
 
 router.patch(
-  '/:id',
+  "/:id",
   validate(savingsValidator.updateSavingsAccountNameSchema),
-  savingsController.updateMySavingsAccountName,
+  savingsController.updateMySavingsAccountName
 );
 
 router.patch(
-  '/:id/pause',
+  "/:id/pause",
   validate(savingsValidator.savingsAccountIdParamSchema),
-  savingsController.pauseMySavingsAccount,
+  savingsController.pauseMySavingsAccount
 );
 
 router.patch(
-  '/:id/resume',
+  "/:id/resume",
   validate(savingsValidator.savingsAccountIdParamSchema),
-  savingsController.resumeMySavingsAccount,
+  savingsController.resumeMySavingsAccount
 );
 
 router.patch(
-  '/:id/cancel',
+  "/:id/cancel",
   validate(savingsValidator.savingsAccountIdParamSchema),
-  savingsController.cancelMySavingsAccount,
+  savingsController.cancelMySavingsAccount
 );
 
 export default router;

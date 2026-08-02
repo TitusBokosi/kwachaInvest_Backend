@@ -1,5 +1,5 @@
 module.exports = {
     testEnvironment: "node",
-    clearMocks: true,
+    resetMocks: true,
     testMatch: ["**/*.test.js"],
 };

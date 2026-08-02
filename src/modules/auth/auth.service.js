@@ -1,20 +1,22 @@
-import bcrypt from "bcryptjs"
-import jwt from "jsonwebtoken"
 import crypto from "crypto"
 import * as authRepository from "./auth.repository.js"
 import * as usersRepository from "../users/user.repository.js"
+import * as notificationService from "../notifications/notification.service.js"
+import { hashValue, compareValue } from "../../utils/hash.js"
+import { signAccessToken } from "../../utils/jwt.js"
+import { REFRESH_TOKEN_TTL_DAYS, OTP_TTL_MINUTES, OTP_MAX_ATTEMPTS } from "../../utils/constants.js"
 import { UnauthorizedError, ForbiddenError, ValidationError } from "../../utils/errors.js"
 
-const SALT_ROUNDS = 10;
-const ACCESS_TOKEN_EXPIRY = process.env.ACCESS_TOKEN_EXPIRY ?? "15m";
-const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30);
-const OTP_TTL_MINUTES = Number(process.env.OTP_TTL_MINUTES ?? 10);
-const OTP_MAX_ATTEMPTS = 5;
-
+// ---------------------------------------------------------------------------
+// Internal helpers (not exported — used to avoid repetition below)
+// ---------------------------------------------------------------------------
 
 const isEmail = (identifier) => identifier.includes("@");
 
-
+/**
+ * `forAuth: true` includes passwordHash — only login() should use that,
+ * since it's the only place that needs to compare a submitted password.
+ */
 const resolveUserByIdentifier = async (identifier, { forAuth = false } = {}) => {
     if (isEmail(identifier)) {
         return forAuth
@@ -26,25 +28,14 @@ const resolveUserByIdentifier = async (identifier, { forAuth = false } = {}) => 
         : usersRepository.getUserByPhoneNumber(identifier);
 }
 
-const generateAccessToken = (user) => {
-    return jwt.sign({ sub: user.id, role: user.role }, process.env.JWT_SECRET, {
-        expiresIn: ACCESS_TOKEN_EXPIRY,
-    });
-}
-
 const generateRefreshToken = () => crypto.randomBytes(40).toString("hex");
 
 const hashToken = (token) => crypto.createHash("sha256").update(token).digest("hex");
 
 const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
 
-
-const sendOtpSms = async (phoneNumber, otp) => {
-    console.log(`[DEV ONLY — no SMS provider wired up] OTP for ${phoneNumber}: ${otp}`);
-}
-
 const issueSession = async (user, { deviceInfo, ipAddress } = {}) => {
-    const accessToken = generateAccessToken(user);
+    const accessToken = signAccessToken({ sub: user.id, role: user.role });
     const refreshToken = generateRefreshToken();
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 
@@ -59,19 +50,22 @@ const issueSession = async (user, { deviceInfo, ipAddress } = {}) => {
     return { accessToken, refreshToken };
 }
 
-
+// ---------------------------------------------------------------------------
+// Login / session lifecycle
+// ---------------------------------------------------------------------------
 
 export const login = async ({ identifier, password, deviceInfo, ipAddress }) => {
     const user = await resolveUserByIdentifier(identifier, { forAuth: true });
 
-
+    // Deliberately generic message for both "no such user" and "wrong
+    // password" — distinguishing them lets an attacker enumerate accounts.
     if (!user) throw new UnauthorizedError("Invalid email/phone or password");
 
     if (!user.isActive) {
         throw new ForbiddenError("This account has been deactivated");
     }
 
-    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+    const passwordMatches = await compareValue(password, user.passwordHash);
     if (!passwordMatches) throw new UnauthorizedError("Invalid email/phone or password");
 
     const { accessToken, refreshToken } = await issueSession(user, { deviceInfo, ipAddress });
@@ -117,7 +111,9 @@ export const listActiveSessions = async (userId) => {
     return authRepository.getActiveSessionsByUser(userId);
 }
 
-
+// ---------------------------------------------------------------------------
+// Forgot / reset password (OTP-based)
+// ---------------------------------------------------------------------------
 
 export const forgotPassword = async (identifier) => {
     const user = await resolveUserByIdentifier(identifier);
@@ -128,7 +124,7 @@ export const forgotPassword = async (identifier) => {
         await authRepository.invalidateActiveOtpCodes(user.id, "PASSWORD_RESET");
 
         const otp = generateOtp();
-        const codeHash = await bcrypt.hash(otp, SALT_ROUNDS);
+        const codeHash = await hashValue(otp);
         const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
         await authRepository.createOtpCode({
@@ -138,7 +134,7 @@ export const forgotPassword = async (identifier) => {
             expiresAt,
         });
 
-        await sendOtpSms(user.phoneNumber, otp);
+        await notificationService.sendPasswordResetOtpEmail(user, otp);
     }
 
     return { message: "If an account exists, a reset code has been sent." };
@@ -146,7 +142,7 @@ export const forgotPassword = async (identifier) => {
 
 export const resetPassword = async ({ identifier, otp, newPassword }) => {
     const user = await resolveUserByIdentifier(identifier);
-
+    // Same generic error for "no user" and "bad/expired code" — see note above.
     const genericError = () => new ValidationError("Invalid or expired code");
 
     if (!user) throw genericError();
@@ -158,7 +154,7 @@ export const resetPassword = async ({ identifier, otp, newPassword }) => {
         throw new ValidationError("Too many incorrect attempts. Please request a new code.");
     }
 
-    const otpMatches = await bcrypt.compare(otp, otpRecord.codeHash);
+    const otpMatches = await compareValue(otp, otpRecord.codeHash);
     if (!otpMatches) {
         await authRepository.incrementOtpAttempts(otpRecord.id);
         throw genericError();
@@ -166,10 +162,11 @@ export const resetPassword = async ({ identifier, otp, newPassword }) => {
 
     await authRepository.consumeOtpCode(otpRecord.id);
 
-    const newPasswordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    const newPasswordHash = await hashValue(newPassword);
     await usersRepository.updatePasswordHash(user.id, newPasswordHash);
 
-   
+    // Force re-login everywhere — a password reset should invalidate any
+    // session that might exist on a device the account owner no longer trusts.
     await authRepository.revokeAllSessionsForUser(user.id);
 
     return { message: "Password reset successful. Please log in again." };

@@ -3,9 +3,10 @@ import { z } from "zod";
 const password = z
     .string()
     .min(8, "Password must be at least 8 characters long")
-    .max(20, "Password must be at most 20 characters long"); 
+    .max(72, "Password must be at most 72 characters long"); // bcrypt's hard limit
 
-
+// Accepts either an email or a phone number in one field — auth.service
+// decides which based on whether it contains "@".
 const identifier = z.string().trim().min(1, "Email or phone number is required");
 
 export const loginSchema = {

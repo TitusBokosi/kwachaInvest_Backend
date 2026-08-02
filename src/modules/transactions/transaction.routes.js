@@ -1,9 +1,9 @@
-import { Router } from 'express';
-import * as transactionController from './transaction.controller.js';
-import { authenticate } from '../../middlewares/auth.middleware.js';
-import { authorize } from '../../middlewares/role.middleware.js';
-import { validate } from '../../middlewares/validate.middleware.js';
-import * as transactionValidator from './transaction.validator.js';
+import { Router } from "express";
+import * as transactionController from "./transaction.controller.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { authorize } from "../../middlewares/role.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import * as transactionValidator from "./transaction.validator.js";
 
 const router = Router();
 
@@ -14,33 +14,33 @@ router.use(authenticate);
 // ---------------------------------------------------------------------------
 
 router.get(
-  '/me',
+  "/me",
   validate(transactionValidator.listMyTransactionsSchema),
-  transactionController.listMyTransactions,
+  transactionController.listMyTransactions
 );
 
 router.get(
-  '/me/:id',
+  "/me/:id",
   validate(transactionValidator.transactionIdParamSchema),
-  transactionController.getMyTransactionById,
+  transactionController.getMyTransactionById
 );
 
 // ---------------------------------------------------------------------------
 // Admin-only
 // ---------------------------------------------------------------------------
 
-router.use(authorize('ADMIN'));
+router.use(authorize("ADMIN"));
 
 router.get(
-  '/',
+  "/",
   validate(transactionValidator.listAllTransactionsSchema),
-  transactionController.listAllTransactions,
+  transactionController.listAllTransactions
 );
 
 router.get(
-  '/:id',
+  "/:id",
   validate(transactionValidator.transactionIdParamSchema),
-  transactionController.getTransactionByIdAdmin,
+  transactionController.getTransactionByIdAdmin
 );
 
 export default router;

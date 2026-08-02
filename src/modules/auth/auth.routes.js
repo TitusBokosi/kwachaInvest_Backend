@@ -1,44 +1,52 @@
 import { Router } from "express";
 import * as authController from "./auth.controller.js";
-import { authenticate } from "../../middleware/auth.middleware.js";
-import { validate } from "../../middleware/validate.middleware.js";
-import * as authValidation from "./auth.validator.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { loginRateLimiter, otpRateLimiter } from "../../middlewares/rateLimit.middleware.js";
+import * as authValidator from "./auth.validator.js";
 
 const router = Router();
 
-
+// ---------------------------------------------------------------------------
+// Public
+// ---------------------------------------------------------------------------
 
 router.post(
   "/login",
-  validate(authValidation.loginSchema),
+  loginRateLimiter,
+  validate(authValidator.loginSchema),
   authController.login
 );
 
 router.post(
   "/refresh",
-  validate(authValidation.refreshSchema),
+  validate(authValidator.refreshSchema),
   authController.refresh
 );
 
 router.post(
   "/logout",
-  validate(authValidation.logoutSchema),
+  validate(authValidator.logoutSchema),
   authController.logout
 );
 
 router.post(
   "/forgot-password",
-  validate(authValidation.forgotPasswordSchema),
+  otpRateLimiter,
+  validate(authValidator.forgotPasswordSchema),
   authController.forgotPassword
 );
 
 router.post(
   "/reset-password",
-  validate(authValidation.resetPasswordSchema),
+  otpRateLimiter,
+  validate(authValidator.resetPasswordSchema),
   authController.resetPassword
 );
 
-
+// ---------------------------------------------------------------------------
+// Authenticated
+// ---------------------------------------------------------------------------
 
 router.use(authenticate);
 
