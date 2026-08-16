@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch index.js",
-    "start": "tsx index.js"
+    "start": "tsx index.js",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "repository": {
     "type": "git",
@@ -26,6 +28,7 @@
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.79.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

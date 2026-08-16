@@ -312,7 +312,17 @@ describe('Auth module', () => {
         );
         expect(
           notificationService.sendPasswordResetOtpEmail,
-        ).toHaveBeenCalledWith(activeUser, expect.any(String));
+        ).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'u1',
+            email: 'tee@example.com',
+            fullName: 'Tee Banda',
+            phoneNumber: '0991234567',
+            role: 'USER',
+            isActive: true,
+          }),
+          expect.any(String),
+        );
         expect(result.message).toMatch(/if an account exists/i);
       });
     });

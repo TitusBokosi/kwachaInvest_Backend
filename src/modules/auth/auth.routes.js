@@ -1,56 +1,48 @@
-import { Router } from "express";
-import * as authController from "./auth.controller.js";
-import { authenticate } from "../../middlewares/auth.middleware.js";
-import { validate } from "../../middlewares/validate.middleware.js";
-import { loginRateLimiter, otpRateLimiter } from "../../middlewares/rateLimit.middleware.js";
-import * as authValidator from "./auth.validator.js";
+import { Router } from 'express';
+import * as authController from './auth.controller.js';
+import { authenticate } from '../../middlewares/auth.middleware.js';
+import { validate } from '../../middlewares/validate.middleware.js';
+import {
+  loginRateLimiter,
+  otpRateLimiter,
+} from '../../middlewares/rateLimit.middleware.js';
+import * as authValidator from './auth.validator.js';
+import { verifyCsrfToken } from '../../middlewares/csrf.middleware.js';
 
 const router = Router();
 
-// ---------------------------------------------------------------------------
-// Public
-// ---------------------------------------------------------------------------
-
 router.post(
-  "/login",
+  '/login',
   loginRateLimiter,
   validate(authValidator.loginSchema),
-  authController.login
+  authController.login,
 );
 
-router.post(
-  "/refresh",
-  validate(authValidator.refreshSchema),
-  authController.refresh
-);
+router.post('/refresh', verifyCsrfToken, authController.refresh);
 
 router.post(
-  "/logout",
+  '/logout',
   validate(authValidator.logoutSchema),
-  authController.logout
+  authController.logout,
 );
 
 router.post(
-  "/forgot-password",
+  '/forgot-password',
   otpRateLimiter,
   validate(authValidator.forgotPasswordSchema),
-  authController.forgotPassword
+  authController.forgotPassword,
 );
 
 router.post(
-  "/reset-password",
+  '/reset-password',
   otpRateLimiter,
   validate(authValidator.resetPasswordSchema),
-  authController.resetPassword
+  authController.resetPassword,
 );
-
-// ---------------------------------------------------------------------------
-// Authenticated
-// ---------------------------------------------------------------------------
 
 router.use(authenticate);
 
-router.get("/sessions", authController.listSessions);
-router.post("/logout-all", authController.logoutAllDevices);
+router.get('/sessions', authController.listSessions);
+router.post('/logout-all', authController.logoutAllDevices);
 
 export default router;

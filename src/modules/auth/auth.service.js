@@ -1,173 +1,236 @@
-import crypto from "crypto"
-import * as authRepository from "./auth.repository.js"
-import * as usersRepository from "../users/user.repository.js"
-import * as notificationService from "../notifications/notification.service.js"
-import { hashValue, compareValue } from "../../utils/hash.js"
-import { signAccessToken } from "../../utils/jwt.js"
-import { REFRESH_TOKEN_TTL_DAYS, OTP_TTL_MINUTES, OTP_MAX_ATTEMPTS } from "../../utils/constants.js"
-import { UnauthorizedError, ForbiddenError, ValidationError } from "../../utils/errors.js"
+import crypto from 'node:crypto';
 
-// ---------------------------------------------------------------------------
-// Internal helpers (not exported — used to avoid repetition below)
-// ---------------------------------------------------------------------------
+import * as authRepository from './auth.repository.js';
+import * as usersRepository from '../users/user.repository.js';
+import * as notificationService from '../notifications/notification.service.js';
 
-const isEmail = (identifier) => identifier.includes("@");
+import { hashValue, compareValue } from '../../utils/hash.js';
+import { signAccessToken } from '../../utils/jwt.js';
 
-/**
- * `forAuth: true` includes passwordHash — only login() should use that,
- * since it's the only place that needs to compare a submitted password.
- */
-const resolveUserByIdentifier = async (identifier, { forAuth = false } = {}) => {
-    if (isEmail(identifier)) {
-        return forAuth
-            ? usersRepository.getUserByEmailForAuth(identifier)
-            : usersRepository.getUserByEmail(identifier);
-    }
+import {
+  REFRESH_TOKEN_TTL_DAYS,
+  OTP_TTL_MINUTES,
+  OTP_MAX_ATTEMPTS,
+} from '../../utils/constants.js';
+
+import {
+  UnauthorizedError,
+  ForbiddenError,
+  ValidationError,
+} from '../../utils/errors.js';
+
+const isEmail = (identifier) => identifier.includes('@');
+
+const resolveUserByIdentifier = async (
+  identifier,
+  { forAuth = false } = {},
+) => {
+  if (isEmail(identifier)) {
     return forAuth
-        ? usersRepository.getUserByPhoneNumberForAuth(identifier)
-        : usersRepository.getUserByPhoneNumber(identifier);
-}
+      ? usersRepository.getUserByEmailForAuth(identifier)
+      : usersRepository.getUserByEmail(identifier);
+  }
 
-const generateRefreshToken = () => crypto.randomBytes(40).toString("hex");
+  return forAuth
+    ? usersRepository.getUserByPhoneNumberForAuth(identifier)
+    : usersRepository.getUserByPhoneNumber(identifier);
+};
 
-const hashToken = (token) => crypto.createHash("sha256").update(token).digest("hex");
+const generateRefreshToken = () => {
+  return crypto.randomBytes(40).toString('hex');
+};
 
-const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
+const hashToken = (token) => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+const generateOtp = () => {
+  return crypto.randomInt(100000, 1000000).toString();
+};
 
 const issueSession = async (user, { deviceInfo, ipAddress } = {}) => {
-    const accessToken = signAccessToken({ sub: user.id, role: user.role });
-    const refreshToken = generateRefreshToken();
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const accessToken = signAccessToken({
+    sub: user.id,
+    role: user.role,
+  });
 
-    await authRepository.createSession({
-        userId: user.id,
-        tokenHash: hashToken(refreshToken),
-        deviceInfo,
-        ipAddress,
-        expiresAt,
-    });
+  const refreshToken = generateRefreshToken();
 
-    return { accessToken, refreshToken };
-}
+  const expiresAt = new Date(
+    Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+  );
 
-// ---------------------------------------------------------------------------
-// Login / session lifecycle
-// ---------------------------------------------------------------------------
+  await authRepository.createSession({
+    userId: user.id,
+    tokenHash: hashToken(refreshToken),
+    deviceInfo,
+    ipAddress,
+    expiresAt,
+  });
 
-export const login = async ({ identifier, password, deviceInfo, ipAddress }) => {
-    const user = await resolveUserByIdentifier(identifier, { forAuth: true });
+  return {
+    accessToken,
+    refreshToken,
+  };
+};
 
-    // Deliberately generic message for both "no such user" and "wrong
-    // password" — distinguishing them lets an attacker enumerate accounts.
-    if (!user) throw new UnauthorizedError("Invalid email/phone or password");
+export const login = async ({
+  identifier,
+  password,
+  deviceInfo,
+  ipAddress,
+}) => {
+  const user = await resolveUserByIdentifier(identifier, {
+    forAuth: true,
+  });
 
-    if (!user.isActive) {
-        throw new ForbiddenError("This account has been deactivated");
-    }
+  if (!user) {
+    throw new UnauthorizedError('Invalid email/phone or password');
+  }
 
-    const passwordMatches = await compareValue(password, user.passwordHash);
-    if (!passwordMatches) throw new UnauthorizedError("Invalid email/phone or password");
+  if (!user.isActive) {
+    throw new ForbiddenError('This account has been deactivated');
+  }
 
-    const { accessToken, refreshToken } = await issueSession(user, { deviceInfo, ipAddress });
-    const { passwordHash, ...safeUser } = user;
+  const passwordMatches = await compareValue(password, user.passwordHash);
 
-    return { accessToken, refreshToken, user: safeUser };
-}
+  if (!passwordMatches) {
+    throw new UnauthorizedError('Invalid email/phone or password');
+  }
 
-export const refreshAccessToken = async ({ refreshToken, deviceInfo, ipAddress }) => {
-    if (!refreshToken) throw new ValidationError("Refresh token is required");
+  const { accessToken, refreshToken } = await issueSession(user, {
+    deviceInfo,
+    ipAddress,
+  });
 
-    const tokenHash = hashToken(refreshToken);
-    const session = await authRepository.getSessionByTokenHash(tokenHash);
+  const { passwordHash, ...safeUser } = user;
 
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
-        throw new UnauthorizedError("Session is invalid or has expired, please log in again");
-    }
+  return {
+    accessToken,
+    refreshToken,
+    user: safeUser,
+  };
+};
 
-    const user = await usersRepository.getUserByIdForAuth(session.userId);
-    if (!user || !user.isActive) {
-        throw new UnauthorizedError("Account is no longer active");
-    }
+export const refreshAccessToken = async ({
+  refreshToken,
+  deviceInfo,
+  ipAddress,
+}) => {
+  if (!refreshToken) {
+    throw new ValidationError('Refresh token is required');
+  }
 
-    // Rotate: the old refresh token is single-use. This limits the damage
-    // if a refresh token is ever stolen — it only works once.
-    await authRepository.revokeSession(session.id);
+  const tokenHash = hashToken(refreshToken);
 
-    return issueSession(user, { deviceInfo, ipAddress });
-}
+  const session = await authRepository.getSessionByTokenHash(tokenHash);
+
+  if (!session || session.revokedAt || session.expiresAt < new Date()) {
+    throw new UnauthorizedError(
+      'Session is invalid or has expired, please log in again',
+    );
+  }
+
+  const user = await usersRepository.getUserByIdForAuth(session.userId);
+
+  if (!user || !user.isActive) {
+    throw new UnauthorizedError('Account is no longer active');
+  }
+
+  // Revoke the old refresh-token session.
+  await authRepository.revokeSession(session.id);
+
+  // Issue a completely new session.
+  return issueSession(user, {
+    deviceInfo,
+    ipAddress,
+  });
+};
 
 export const logout = async (refreshToken) => {
-    if (!refreshToken) throw new ValidationError("Refresh token is required");
-    // Idempotent on purpose — logging out twice, or with an already-expired
-    // token, should not be treated as an error from the caller's side.
-    await authRepository.revokeSessionByTokenHash(hashToken(refreshToken));
-}
+  if (!refreshToken) {
+    throw new ValidationError('Refresh token is required');
+  }
+
+  await authRepository.revokeSessionByTokenHash(hashToken(refreshToken));
+};
 
 export const logoutAllDevices = async (userId) => {
-    await authRepository.revokeAllSessionsForUser(userId);
-}
+  await authRepository.revokeAllSessionsForUser(userId);
+};
 
 export const listActiveSessions = async (userId) => {
-    return authRepository.getActiveSessionsByUser(userId);
-}
-
-// ---------------------------------------------------------------------------
-// Forgot / reset password (OTP-based)
-// ---------------------------------------------------------------------------
+  return authRepository.getActiveSessionsByUser(userId);
+};
 
 export const forgotPassword = async (identifier) => {
-    const user = await resolveUserByIdentifier(identifier);
+  const user = await resolveUserByIdentifier(identifier);
 
-    // Always return the same response whether or not the account exists —
-    // otherwise this endpoint becomes a way to enumerate registered users.
-    if (user) {
-        await authRepository.invalidateActiveOtpCodes(user.id, "PASSWORD_RESET");
+  if (user) {
+    await authRepository.invalidateActiveOtpCodes(user.id, 'PASSWORD_RESET');
 
-        const otp = generateOtp();
-        const codeHash = await hashValue(otp);
-        const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+    const otp = generateOtp();
 
-        await authRepository.createOtpCode({
-            userId: user.id,
-            codeHash,
-            purpose: "PASSWORD_RESET",
-            expiresAt,
-        });
+    const codeHash = await hashValue(otp);
 
-        await notificationService.sendPasswordResetOtpEmail(user, otp);
-    }
+    const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
-    return { message: "If an account exists, a reset code has been sent." };
-}
+    await authRepository.createOtpCode({
+      userId: user.id,
+      codeHash,
+      purpose: 'PASSWORD_RESET',
+      expiresAt,
+    });
+
+    await notificationService.sendPasswordResetOtpEmail(user, otp);
+  }
+
+  return {
+    message: 'If an account exists, a reset code has been sent.',
+  };
+};
 
 export const resetPassword = async ({ identifier, otp, newPassword }) => {
-    const user = await resolveUserByIdentifier(identifier);
-    // Same generic error for "no user" and "bad/expired code" — see note above.
-    const genericError = () => new ValidationError("Invalid or expired code");
+  const user = await resolveUserByIdentifier(identifier);
 
-    if (!user) throw genericError();
+  const genericError = () => new ValidationError('Invalid or expired code');
 
-    const otpRecord = await authRepository.getActiveOtpCode(user.id, "PASSWORD_RESET");
-    if (!otpRecord) throw genericError();
+  if (!user) {
+    throw genericError();
+  }
 
-    if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
-        throw new ValidationError("Too many incorrect attempts. Please request a new code.");
-    }
+  const otpRecord = await authRepository.getActiveOtpCode(
+    user.id,
+    'PASSWORD_RESET',
+  );
 
-    const otpMatches = await compareValue(otp, otpRecord.codeHash);
-    if (!otpMatches) {
-        await authRepository.incrementOtpAttempts(otpRecord.id);
-        throw genericError();
-    }
+  if (!otpRecord) {
+    throw genericError();
+  }
 
-    await authRepository.consumeOtpCode(otpRecord.id);
+  if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+    throw new ValidationError(
+      'Too many incorrect attempts. Please request a new code.',
+    );
+  }
 
-    const newPasswordHash = await hashValue(newPassword);
-    await usersRepository.updatePasswordHash(user.id, newPasswordHash);
+  const otpMatches = await compareValue(otp, otpRecord.codeHash);
 
-    // Force re-login everywhere — a password reset should invalidate any
-    // session that might exist on a device the account owner no longer trusts.
-    await authRepository.revokeAllSessionsForUser(user.id);
+  if (!otpMatches) {
+    await authRepository.incrementOtpAttempts(otpRecord.id);
 
-    return { message: "Password reset successful. Please log in again." };
-}
+    throw genericError();
+  }
+
+  await authRepository.consumeOtpCode(otpRecord.id);
+
+  const newPasswordHash = await hashValue(newPassword);
+
+  await usersRepository.updatePasswordHash(user.id, newPasswordHash);
+
+  await authRepository.revokeAllSessionsForUser(user.id);
+
+  return {
+    message: 'Password reset successful. Please log in again.',
+  };
+};

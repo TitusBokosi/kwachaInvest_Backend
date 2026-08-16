@@ -1,7 +1,7 @@
 import { Router } from "express";
 import * as userController from "./user.controller.js";
 import { authenticate } from "../../middlewares/auth.middleware.js";
-import { authorize } from "../../middlewares/role.middleware.js";
+
 import { validate } from "../../middlewares/validate.middleware.js";
 import { registerRateLimiter } from "../../middlewares/rateLimit.middleware.js";
 import * as userValidator from "./user.validator.js";
@@ -42,46 +42,10 @@ router.post(
 
 router.delete("/me", userController.deactivateMe);
 
-// ---------------------------------------------------------------------------
-// Admin-only
-// ---------------------------------------------------------------------------
 
-router.use(authorize("ADMIN"));
 
-router.get(
-  "/search",
-  validate(userValidator.searchUsersSchema),
-  userController.searchUsers
-);
 
-router.get(
-  "/",
-  validate(userValidator.listUsersSchema),
-  userController.listUsers
-);
 
-router.get(
-  "/:id",
-  validate(userValidator.userIdParamSchema),
-  userController.getUserById
-);
 
-router.patch(
-  "/:id/deactivate",
-  validate(userValidator.userIdParamSchema),
-  userController.deactivateUserById
-);
-
-router.patch(
-  "/:id/reactivate",
-  validate(userValidator.userIdParamSchema),
-  userController.reactivateUserById
-);
-
-router.patch(
-  "/:id/role",
-  validate(userValidator.updateUserRoleSchema),
-  userController.updateUserRole
-);
 
 export default router;

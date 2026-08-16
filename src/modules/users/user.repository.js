@@ -1,4 +1,5 @@
 import prisma from "../../config/client.js"
+import { withTransaction } from "../../utils/withTransaction.js"
 
 // ---------------------------------------------------------------------------
 // NOTE ON SCOPE
@@ -130,7 +131,7 @@ export const getUsers = async (filters = {}, pagination = {}) => {
         // back here once KYC ships.
     }
 
-    const [data, total] = await prisma.$transaction([
+    const [data, total] = await withTransaction([
         prisma.user.findMany({ where, skip, take, orderBy: { createdAt: "desc" } }),
         prisma.user.count({ where }),
     ])
@@ -148,7 +149,7 @@ export const searchUsers = async (query, pagination = {}) => {
         ],
     }
 
-    const [data, total] = await prisma.$transaction([
+    const [data, total] = await withTransaction([
         prisma.user.findMany({ where, skip, take, orderBy: { createdAt: "desc" } }),
         prisma.user.count({ where }),
     ])

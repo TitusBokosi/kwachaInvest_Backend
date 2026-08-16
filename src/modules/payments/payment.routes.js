@@ -1,71 +1,57 @@
-import { Router } from "express";
-import express from "express";
-import * as paymentController from "./payment.controller.js";
-import { authenticate } from "../../middlewares/auth.middleware.js";
-import { validate } from "../../middlewares/validate.middleware.js";
-import * as paymentValidator from "./payment.validator.js";
-
-// ---------------------------------------------------------------------------
-// Self-service routes — mount normally under /api/payments in app.js.
-// ---------------------------------------------------------------------------
+import { Router } from 'express';
+import express from 'express';
+import * as paymentController from './payment.controller.js';
+import { authenticate } from '../../middlewares/auth.middleware.js';
+import { validate } from '../../middlewares/validate.middleware.js';
+import * as paymentValidator from './payment.validator.js';
 
 const router = Router();
 
 router.use(authenticate);
 
-router.get("/mobile-money-operators", paymentController.listMobileMoneyOperators);
+router.get(
+  '/mobile-money-operators',
+  paymentController.listMobileMoneyOperators,
+);
 
-router.get("/saved-methods", paymentController.listMySavedPaymentMethods);
+router.get('/saved-methods', paymentController.listMySavedPaymentMethods);
 
 router.delete(
-  "/saved-methods/:id",
+  '/saved-methods/:id',
   validate(paymentValidator.savedPaymentMethodIdParamSchema),
-  paymentController.deleteMySavedPaymentMethod
+  paymentController.deleteMySavedPaymentMethod,
 );
 
 router.post(
-  "/deposits/mobile-money",
+  '/deposits/mobile-money',
   validate(paymentValidator.initiateMobileMoneyDepositSchema),
-  paymentController.initiateMobileMoneyDeposit
+  paymentController.initiateMobileMoneyDeposit,
 );
 
 router.post(
-  "/withdrawals/mobile-money",
+  '/withdrawals/mobile-money',
   validate(paymentValidator.initiateMobileMoneyWithdrawalSchema),
-  paymentController.initiateMobileMoneyWithdrawal
+  paymentController.initiateMobileMoneyWithdrawal,
 );
 
 router.post(
-  "/deposits/checkout",
+  '/deposits/checkout',
   validate(paymentValidator.initiateHostedCheckoutDepositSchema),
-  paymentController.initiateHostedCheckoutDeposit
+  paymentController.initiateHostedCheckoutDeposit,
 );
 
 router.get(
-  "/deposits/:id",
+  '/deposits/:id',
   validate(paymentValidator.transactionIdParamSchema),
-  paymentController.getMyDepositStatus
+  paymentController.getMyDepositStatus,
 );
 
 export default router;
 
-// ---------------------------------------------------------------------------
-// Webhook router — MUST be mounted BEFORE the app's global express.json()
-// middleware, using its own raw body parser. Signature verification needs
-// the exact raw bytes PayChangu sent; a JSON-parsed-then-re-stringified
-// body will not produce a matching HMAC.
-//
-// In app.js:
-//   import { webhookRouter } from "./modules/payments/payment.routes.js";
-//   app.use("/api/payments/webhooks", webhookRouter);   // BEFORE express.json()
-//   app.use(express.json());
-//   app.use("/api/payments", paymentRoutes);            // the default export above
-// ---------------------------------------------------------------------------
-
 export const webhookRouter = Router();
 
 webhookRouter.post(
-  "/paychangu",
-  express.raw({ type: "application/json" }),
-  paymentController.handlePaychanguWebhook
+  '/paychangu',
+  express.raw({ type: 'application/json' }),
+  paymentController.handlePaychanguWebhook,
 );
