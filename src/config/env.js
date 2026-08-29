@@ -7,7 +7,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
+  ALLOWED_ORIGINS: z.string().default('http://localhost:5174'),
 
   JWT_SECRET: z.string().min(32, 'JWT_SECRET should be at least 32 characters'),
   ACCESS_TOKEN_EXPIRY: z.string().default('15m'),

@@ -73,13 +73,6 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export const refresh = asyncHandler(async (req, res) => {
-  console.log('\n========== REFRESH CONTROLLER ==========');
-  console.log('Cookies:', req.cookies);
-  console.log('Refresh token exists:', Boolean(req.cookies?.refreshToken));
-  console.log('CSRF cookie exists:', Boolean(req.cookies?.csrfToken));
-  console.log('CSRF header:', req.headers['x-csrf-token']);
-  console.log('=========================================\n');
-
   const { refreshToken } = req.cookies;
 
   const result = await authService.refreshAccessToken({
