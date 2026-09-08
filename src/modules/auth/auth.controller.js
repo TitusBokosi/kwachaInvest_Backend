@@ -5,9 +5,12 @@ import { asyncHandler } from '../../utils/asyncHandler.js';
 
 const REFRESH_COOKIE_PATH = '/api/auth/refresh';
 
+const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
+
 const baseCookieOptions = {
   secure: process.env.NODE_ENV === 'production',
   sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  maxAge: REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
 };
 
 const setAuthCookies = (res, refreshToken) => {
@@ -24,14 +27,6 @@ const setAuthCookies = (res, refreshToken) => {
     httpOnly: false,
     path: '/',
   });
-
-  console.log('\n========== AUTH COOKIES SET ==========');
-  console.log('refreshToken:', Boolean(refreshToken));
-  console.log('csrfToken:', csrfToken);
-  console.log('refreshToken path:', REFRESH_COOKIE_PATH);
-  console.log('csrfToken path: /');
-  console.log('Cookie options:', baseCookieOptions);
-  console.log('======================================\n');
 };
 
 const clearAuthCookies = (res) => {
