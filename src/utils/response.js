@@ -7,10 +7,14 @@
  *     (any extra fields alongside data/message are spread onto the body as-is —
  *      this is how paginated list endpoints attach total/page/pageSize/totalPages)
  */
-export const sendSuccess = (res, { statusCode = 200, data, message, ...rest } = {}) => {
-    const body = { success: true };
-    if (message !== undefined) body.message = message;
-    if (data !== undefined) body.data = data;
-    Object.assign(body, rest);
-    return res.status(statusCode).json(body);
-}
+export const sendSuccess = (
+  res,
+  { statusCode = 200, data, message, ...rest } = {},
+) => {
+  const body = { success: true };
+  if (message !== undefined) body.message = message;
+  if (data !== undefined) body.data = data;
+
+  Object.assign(body, rest);
+  return res.status(statusCode).json(body);
+};

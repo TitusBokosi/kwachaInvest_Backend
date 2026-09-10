@@ -22,6 +22,7 @@ export const initiateMobileMoneyDeposit = asyncHandler(async (req, res) => {
     req.user.id,
     req.body,
   );
+
   sendSuccess(res, { statusCode: 202, data: transaction });
 });
 
