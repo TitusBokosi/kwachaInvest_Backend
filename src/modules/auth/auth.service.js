@@ -5,7 +5,11 @@ import * as usersRepository from '../users/user.repository.js';
 import * as notificationService from '../notifications/notification.service.js';
 
 import { hashValue, compareValue } from '../../utils/hash.js';
-import { signAccessToken } from '../../utils/jwt.js';
+import {
+  signAccessToken,
+  signPasswordResetToken,
+  verifyPasswordResetToken,
+} from '../../utils/jwt.js';
 
 import {
   REFRESH_TOKEN_TTL_DAYS,
@@ -163,8 +167,8 @@ export const listActiveSessions = async (userId) => {
   return authRepository.getActiveSessionsByUser(userId);
 };
 
-export const forgotPassword = async (identifier) => {
-  const user = await resolveUserByIdentifier(identifier);
+export const forgotPassword = async (email) => {
+  const user = await usersRepository.getUserByEmail(email);
 
   if (user) {
     await authRepository.invalidateActiveOtpCodes(user.id, 'PASSWORD_RESET');
@@ -190,9 +194,8 @@ export const forgotPassword = async (identifier) => {
   };
 };
 
-export const resetPassword = async ({ identifier, otp, newPassword }) => {
-  const user = await resolveUserByIdentifier(identifier);
-
+export const verifyResetOtp = async ({ email, otp }) => {
+  const user = await usersRepository.getUserByEmail(email);
   const genericError = () => new ValidationError('Invalid or expired code');
 
   if (!user) {
@@ -223,6 +226,38 @@ export const resetPassword = async ({ identifier, otp, newPassword }) => {
   }
 
   await authRepository.consumeOtpCode(otpRecord.id);
+
+  return {
+    resetToken: signPasswordResetToken({ userId: user.id, otpId: otpRecord.id }),
+  };
+};
+
+export const resetPassword = async ({ resetToken, newPassword }) => {
+  const genericError = () => new ValidationError('Invalid or expired reset link');
+  let payload;
+
+  try {
+    payload = verifyPasswordResetToken(resetToken);
+  } catch {
+    throw genericError();
+  }
+
+  if (payload.purpose !== 'PASSWORD_RESET' || !payload.sub || !payload.otpId) {
+    throw genericError();
+  }
+
+  const user = await usersRepository.getUserByIdForAuth(payload.sub);
+  if (!user || !user.isActive) {
+    throw genericError();
+  }
+
+  const consumedToken = await authRepository.consumePasswordResetToken({
+    otpId: payload.otpId,
+    userId: user.id,
+  });
+  if (consumedToken.count !== 1) {
+    throw genericError();
+  }
 
   const newPasswordHash = await hashValue(newPassword);
 

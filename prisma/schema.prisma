@@ -195,6 +195,9 @@ model OtpCode {
 
   expiresAt   DateTime
   consumedAt  DateTime?
+  // Set when a reset JWT minted from this verified OTP is redeemed. This makes
+  // the reset token single-use even before its JWT expiry.
+  resetTokenUsedAt DateTime?
   attempts    Int       @default(0)
 
   createdAt DateTime @default(now())

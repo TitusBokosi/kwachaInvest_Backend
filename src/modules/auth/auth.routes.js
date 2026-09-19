@@ -4,7 +4,8 @@ import { authenticate } from '../../middlewares/auth.middleware.js';
 import { validate } from '../../middlewares/validate.middleware.js';
 import {
   loginRateLimiter,
-  otpRateLimiter,
+  forgotPasswordRateLimiter,
+  verifyResetOtpRateLimiter,
 } from '../../middlewares/rateLimit.middleware.js';
 import * as authValidator from './auth.validator.js';
 import { verifyCsrfToken } from '../../middlewares/csrf.middleware.js';
@@ -28,14 +29,20 @@ router.post(
 
 router.post(
   '/forgot-password',
-  otpRateLimiter,
+  forgotPasswordRateLimiter,
   validate(authValidator.forgotPasswordSchema),
   authController.forgotPassword,
 );
 
 router.post(
+  '/verify-reset-otp',
+  verifyResetOtpRateLimiter,
+  validate(authValidator.verifyResetOtpSchema),
+  authController.verifyResetOtp,
+);
+
+router.post(
   '/reset-password',
-  otpRateLimiter,
   validate(authValidator.resetPasswordSchema),
   authController.resetPassword,
 );

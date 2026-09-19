@@ -216,7 +216,7 @@ describe('Savings module', () => {
     });
 
     describe('getWithdrawalBreakdown — the core locking/penalty logic', () => {
-      it('FLEXIBLE accounts: no penalty regardless of maturity', async () => {
+      it('FLEXIBLE accounts: charge 15% before maturity', async () => {
         const account = baseAccount({
           withdrawalPolicy: 'FLEXIBLE',
           balance: '1000',
@@ -230,12 +230,13 @@ describe('Savings module', () => {
           100,
         );
 
-        expect(breakdown.isEarly).toBe(false);
-        expect(breakdown.penaltyAmount).toBe(0);
-        expect(breakdown.payoutAmount).toBe(100);
+        expect(breakdown.isEarly).toBe(true);
+        expect(breakdown.penaltyPercentage).toBe(15);
+        expect(breakdown.penaltyAmount).toBe(15);
+        expect(breakdown.payoutAmount).toBe(85);
       });
 
-      it('LOCKED time-based, before maturity: penalized but ALLOWED, not blocked', async () => {
+      it('LOCKED time-based, before maturity: is blocked', async () => {
         const account = baseAccount({
           withdrawalPolicy: 'LOCKED',
           balance: '1000',
@@ -244,15 +245,9 @@ describe('Savings module', () => {
         });
         prisma.savingsAccount.findUnique.mockResolvedValue(account);
 
-        const breakdown = await savingsService.getWithdrawalBreakdown(
-          'u1',
-          'sa1',
-          100,
-        );
-
-        expect(breakdown.isEarly).toBe(true);
-        expect(breakdown.penaltyAmount).toBe(10);
-        expect(breakdown.payoutAmount).toBe(90);
+        await expect(
+          savingsService.getWithdrawalBreakdown('u1', 'sa1', 100),
+        ).rejects.toThrow(/withdrawals aren't allowed yet/i);
       });
 
       it('LOCKED time-based, after maturity: no penalty', async () => {
@@ -275,7 +270,7 @@ describe('Savings module', () => {
         expect(breakdown.payoutAmount).toBe(100);
       });
 
-      it('LOCKED target-based, target not yet reached: penalized', async () => {
+      it('LOCKED target-based, target not yet reached: is blocked', async () => {
         const account = baseAccount({
           type: 'TARGET_BASED',
           withdrawalPolicy: 'LOCKED',
@@ -286,14 +281,9 @@ describe('Savings module', () => {
         });
         prisma.savingsAccount.findUnique.mockResolvedValue(account);
 
-        const breakdown = await savingsService.getWithdrawalBreakdown(
-          'u1',
-          'sa1',
-          100,
-        );
-
-        expect(breakdown.isEarly).toBe(true);
-        expect(breakdown.penaltyAmount).toBe(20);
+        await expect(
+          savingsService.getWithdrawalBreakdown('u1', 'sa1', 100),
+        ).rejects.toThrow(/withdrawals aren't allowed yet/i);
       });
 
       it('LOCKED target-based, target already reached: no penalty', async () => {

@@ -13,6 +13,7 @@ const envSchema = z.object({
   ACCESS_TOKEN_EXPIRY: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
+  RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(10),
 
   APP_BASE_URL: z
     .string()

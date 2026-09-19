@@ -1,5 +1,8 @@
 import * as savingsModel from './savings.model.js';
-import { DEFAULT_PENALTY_PERCENTAGE } from '../../utils/constants.js';
+import {
+  DEFAULT_PENALTY_PERCENTAGE,
+  EARLY_FLEXIBLE_WITHDRAWAL_PENALTY_PERCENTAGE,
+} from '../../utils/constants.js';
 import {
   NotFoundError,
   ValidationError,
@@ -180,17 +183,13 @@ export const assertDepositable = async (userId, savingsAccountId) => {
  * in the schema since the very first version of this model, but never
  * actually enforced anywhere — come into effect:
  *
- * - FLEXIBLE accounts: always withdrawable in full, no penalty, regardless
- *   of maturity/target progress.
- * - LOCKED accounts: withdrawing before maturity (time-based) or before
- *   reaching the target (target-based) is still ALLOWED, but incurs
- *   `penaltyPercentage` deducted from the payout. The full requested amount
- *   still leaves the balance — the penalty portion is forfeited, not paid
- *   out. LOCKED withdrawals made after maturity/target are penalty-free.
+ * - LOCKED accounts: cannot be withdrawn before maturity (time-based) or
+ *   before reaching their target (target-based).
+ * - FLEXIBLE accounts: remain withdrawable early, but a fixed 15% fee is
+ *   deducted from the payout. The full requested amount leaves the balance.
  *
- * Returns a breakdown rather than throwing on "early" — early withdrawal is
- * a normal, allowed path here, just a costed one. Blocking it outright
- * would be a different product decision than what penaltyPercentage implies.
+ * Early flexible withdrawal is a normal, costed path; early locked withdrawal
+ * is rejected here as the server-side enforcement for the UI restriction.
  */
 export const getWithdrawalBreakdown = async (
   userId,
@@ -215,9 +214,17 @@ export const getWithdrawalBreakdown = async (
   }
 
   let isEarly = false;
-  if (account.type === 'TIME_BASED' && account.timeBasedDetails) {
+  if (
+    account.status !== 'COMPLETED' &&
+    account.type === 'TIME_BASED' &&
+    account.timeBasedDetails
+  ) {
     isEarly = new Date() < new Date(account.timeBasedDetails.maturityDate);
-  } else if (account.type === 'TARGET_BASED' && account.targetBasedDetails) {
+  } else if (
+    account.status !== 'COMPLETED' &&
+    account.type === 'TARGET_BASED' &&
+    account.targetBasedDetails
+  ) {
     isEarly =
       Number(account.balance) < Number(account.targetBasedDetails.target);
   }
@@ -236,7 +243,7 @@ export const getWithdrawalBreakdown = async (
   // reach here. FLEXIBLE + early is the only case that costs anything.
   const penaltyPercentage =
     isEarly && account.withdrawalPolicy === 'FLEXIBLE'
-      ? Number(account.penaltyPercentage)
+      ? EARLY_FLEXIBLE_WITHDRAWAL_PENALTY_PERCENTAGE
       : 0;
   const penaltyAmount =
     Math.round(requested * (penaltyPercentage / 100) * 100) / 100;

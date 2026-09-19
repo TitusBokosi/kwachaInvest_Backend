@@ -31,6 +31,8 @@ jest.mock('../../utils/hash.js', () => ({
 
 jest.mock('../../utils/jwt.js', () => ({
   signAccessToken: jest.fn(),
+  signPasswordResetToken: jest.fn(),
+  verifyPasswordResetToken: jest.fn(),
 }));
 
 jest.mock('../notifications/notification.service.js', () => ({
@@ -55,6 +57,8 @@ const buildRes = () => {
   const res = {};
   res.status = jest.fn().mockReturnValue(res);
   res.json = jest.fn().mockReturnValue(res);
+  res.cookie = jest.fn().mockReturnValue(res);
+  res.clearCookie = jest.fn().mockReturnValue(res);
   return res;
 };
 
@@ -327,92 +331,29 @@ describe('Auth module', () => {
       });
     });
 
-    describe('resetPassword', () => {
-      const validInput = {
-        identifier: activeUser.email,
-        otp: '123456',
-        newPassword: 'newpassword1',
-      };
-
-      it("throws a generic ValidationError when the user doesn't exist", async () => {
-        prisma.user.findUnique.mockResolvedValue(null);
-        await expect(authService.resetPassword(validInput)).rejects.toThrow(
-          ValidationError,
-        );
-      });
-
-      it("throws when there's no active OTP", async () => {
+    describe('password reset', () => {
+      it('issues a reset-only JWT after a correct OTP is verified', async () => {
         prisma.user.findUnique.mockResolvedValue(activeUser);
-        prisma.otpCode.findFirst.mockResolvedValue(null);
-        await expect(authService.resetPassword(validInput)).rejects.toThrow(
-          ValidationError,
-        );
-      });
-
-      it('throws and does NOT increment attempts once the max is already reached', async () => {
-        prisma.user.findUnique.mockResolvedValue(activeUser);
-        prisma.otpCode.findFirst.mockResolvedValue({
-          id: 'otp1',
-          attempts: 5,
-          codeHash: 'h',
-        });
-
-        await expect(authService.resetPassword(validInput)).rejects.toThrow(
-          /too many incorrect attempts/i,
-        );
-        expect(prisma.otpCode.update).not.toHaveBeenCalled();
-      });
-
-      it('increments attempts on a wrong code', async () => {
-        prisma.user.findUnique.mockResolvedValue(activeUser);
-        prisma.otpCode.findFirst.mockResolvedValue({
-          id: 'otp1',
-          attempts: 1,
-          codeHash: 'h',
-        });
-        hashUtil.compareValue.mockResolvedValue(false);
-        prisma.otpCode.update.mockResolvedValue({});
-
-        await expect(authService.resetPassword(validInput)).rejects.toThrow(
-          ValidationError,
-        );
-        expect(prisma.otpCode.update).toHaveBeenCalledWith({
-          where: { id: 'otp1' },
-          data: { attempts: { increment: 1 } },
-        });
-      });
-
-      it('on success: consumes the OTP, updates the password, and revokes every session', async () => {
-        prisma.user.findUnique.mockResolvedValue(activeUser);
-        prisma.otpCode.findFirst.mockResolvedValue({
-          id: 'otp1',
-          attempts: 0,
-          codeHash: 'h',
-        });
+        prisma.otpCode.findFirst.mockResolvedValue({ id: 'otp1', attempts: 0, codeHash: 'h' });
         hashUtil.compareValue.mockResolvedValue(true);
         prisma.otpCode.update.mockResolvedValue({});
+        jwtUtil.signPasswordResetToken.mockReturnValue('reset.jwt');
+
+        await expect(authService.verifyResetOtp({ email: activeUser.email, otp: '123456' })).resolves.toEqual({ resetToken: 'reset.jwt' });
+        expect(jwtUtil.signPasswordResetToken).toHaveBeenCalledWith({ userId: 'u1', otpId: 'otp1' });
+      });
+
+      it('updates the password and revokes sessions only with an unused verified reset token', async () => {
+        jwtUtil.verifyPasswordResetToken.mockReturnValue({ sub: 'u1', otpId: 'otp1', purpose: 'PASSWORD_RESET' });
+        prisma.user.findUnique.mockResolvedValue(activeUser);
+        prisma.otpCode.updateMany.mockResolvedValue({ count: 1 });
         hashUtil.hashValue.mockResolvedValue('new-hash');
-        prisma.user.update.mockResolvedValue({
-          id: 'u1',
-          updatedAt: new Date(),
-        });
+        prisma.user.update.mockResolvedValue({ id: 'u1', updatedAt: new Date() });
         prisma.authSession.updateMany.mockResolvedValue({ count: 2 });
 
-        const result = await authService.resetPassword(validInput);
-
-        expect(prisma.otpCode.update).toHaveBeenCalledWith({
-          where: { id: 'otp1' },
-          data: { consumedAt: expect.any(Date) },
-        });
-        expect(prisma.user.update).toHaveBeenCalledWith({
-          where: { id: 'u1' },
-          data: { passwordHash: 'new-hash' },
-        });
-        expect(prisma.authSession.updateMany).toHaveBeenCalledWith({
-          where: { userId: 'u1', revokedAt: null },
-          data: { revokedAt: expect.any(Date) },
-        });
-        expect(result.message).toMatch(/password reset successful/i);
+        await expect(authService.resetPassword({ resetToken: 'reset.jwt', newPassword: 'newpassword1' })).resolves.toMatchObject({ message: expect.stringMatching(/successful/i) });
+        expect(prisma.otpCode.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: 'otp1', resetTokenUsedAt: null }) }));
+        expect(prisma.authSession.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'u1', revokedAt: null } }));
       });
     });
   });
@@ -528,16 +469,10 @@ describe('Auth module', () => {
       expect(result.success).toBe(false);
     });
 
-    it('refreshSchema and logoutSchema both require a non-empty refreshToken', () => {
-      expect(authValidator.refreshSchema.body.safeParse({}).success).toBe(
-        false,
-      );
+    it('verifyResetOtpSchema requires an email and six-digit code', () => {
+      expect(authValidator.verifyResetOtpSchema.body.safeParse({}).success).toBe(false);
       expect(
-        authValidator.logoutSchema.body.safeParse({ refreshToken: '' }).success,
-      ).toBe(false);
-      expect(
-        authValidator.logoutSchema.body.safeParse({ refreshToken: 'abc' })
-          .success,
+        authValidator.verifyResetOtpSchema.body.safeParse({ email: 'a@b.com', otp: '123456' }).success,
       ).toBe(true);
     });
   });

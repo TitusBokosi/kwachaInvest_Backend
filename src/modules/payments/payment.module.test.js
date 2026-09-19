@@ -185,7 +185,7 @@ describe('Payments module', () => {
   describe('initiateMobileMoneyWithdrawal', () => {
     it('decrements the FULL requested amount from balance even when a penalty applies (penalty is forfeited, not refunded to balance)', async () => {
       const account = savingsAccount({
-        withdrawalPolicy: 'LOCKED',
+        withdrawalPolicy: 'FLEXIBLE',
         penaltyPercentage: '10',
         balance: '1000',
       });
@@ -212,12 +212,15 @@ describe('Payments module', () => {
         data: { balance: { decrement: 100 } },
       });
       expect(paychangu.initiateMobileMoneyPayout).toHaveBeenCalledWith(
-        expect.objectContaining({ amount: 90 }),
+        expect.objectContaining({ amount: 85 }),
       );
     });
 
     it('records an EARLY_WITHDRAWAL_PENALTY_APPLIED audit log only when the withdrawal is actually early', async () => {
-      const account = savingsAccount({ withdrawalPolicy: 'FLEXIBLE' }); // no penalty possible
+      const account = savingsAccount({
+        withdrawalPolicy: 'FLEXIBLE',
+        timeBasedDetails: { maturityDate: new Date('2020-01-01') },
+      });
       prisma.savingsAccount.findUnique.mockResolvedValue(account);
       prisma.savingsAccount.update.mockResolvedValue({});
       prisma.transaction.create.mockResolvedValue({ id: 't1' });

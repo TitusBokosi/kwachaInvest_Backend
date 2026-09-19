@@ -94,6 +94,19 @@ export const consumeOtpCode = async (id) => {
   });
 };
 
+export const consumePasswordResetToken = async ({ otpId, userId }) => {
+  return prisma.otpCode.updateMany({
+    where: {
+      id: otpId,
+      userId,
+      purpose: 'PASSWORD_RESET',
+      consumedAt: { not: null },
+      resetTokenUsedAt: null,
+    },
+    data: { resetTokenUsedAt: new Date() },
+  });
+};
+
 export const invalidateActiveOtpCodes = async (userId, purpose) => {
   return prisma.otpCode.updateMany({
     where: { userId, purpose, consumedAt: null, expiresAt: { gt: new Date() } },

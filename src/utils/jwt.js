@@ -9,3 +9,17 @@ export const signAccessToken = (payload) => {
 export const verifyAccessToken = (token) => {
     return jwt.verify(token, env.JWT_SECRET);
 }
+
+// This token can only authorize a password reset. It is deliberately separate
+// from the application's access and refresh tokens.
+export const signPasswordResetToken = ({ userId, otpId }) => {
+    return jwt.sign(
+        { sub: userId, otpId, purpose: 'PASSWORD_RESET' },
+        env.JWT_SECRET,
+        { expiresIn: `${env.RESET_TOKEN_TTL_MINUTES}m` },
+    );
+}
+
+export const verifyPasswordResetToken = (token) => {
+    return jwt.verify(token, env.JWT_SECRET);
+}
