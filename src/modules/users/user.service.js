@@ -70,7 +70,11 @@ export const registerUser = async ({
     expiresAt,
   });
 
-  await notificationService.sendSignupVerificationOtpEmail(user, otp);
+  // Send the signup verification email asynchronously so the HTTP
+  // response can return quickly and the client can show a "generating
+  // OTP" UI without waiting for the mailer. notificationService will
+  // log failures internally.
+  notificationService.sendSignupVerificationOtpEmail(user, otp);
 
   return {
     ...user,

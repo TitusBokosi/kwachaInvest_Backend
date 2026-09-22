@@ -48,6 +48,9 @@ router.post(
   authController.verifySignupOtp,
 );
 
+// Public endpoint: check whether an OTP record exists (unconsumed & unexpired)
+router.get('/otp-status', authController.otpStatus);
+
 router.post(
   '/reset-password',
   validate(authValidator.resetPasswordSchema),

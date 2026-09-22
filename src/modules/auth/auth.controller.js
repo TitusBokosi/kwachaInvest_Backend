@@ -150,6 +150,17 @@ export const verifySignupOtp = asyncHandler(async (req, res) => {
   });
 });
 
+export const otpStatus = asyncHandler(async (req, res) => {
+  const { email } = req.query;
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'email is required' });
+  }
+
+  const exists = await authService.checkOtpExistsForEmail(email);
+
+  res.status(200).json({ success: true, data: { exists } });
+});
+
 export const resetPassword = asyncHandler(async (req, res) => {
   const result = await authService.resetPassword(req.body);
 

@@ -301,6 +301,14 @@ export const verifySignupOtp = async ({ email, otp }) => {
   };
 };
 
+export const checkOtpExistsForEmail = async (email) => {
+  const user = await usersRepository.getUserByEmail(email);
+  if (!user) return false;
+
+  const otp = await authRepository.getActiveOtpCode(user.id, 'EMAIL_VERIFICATION');
+  return !!otp;
+};
+
 export const resetPassword = async ({ resetToken, newPassword }) => {
   const genericError = () =>
     new ValidationError("Invalid or expired reset link");
