@@ -20,6 +20,15 @@ export const sendPasswordResetOtpEmail = async (user, otp) => {
   });
 };
 
+export const sendSignupVerificationOtpEmail = async (user, otp) => {
+  await send({
+    to: user.email,
+    subject: 'Verify your KwachaInvest account',
+    text: `Your signup verification code is ${otp}. It expires in 10 minutes. Enter it to activate your account.`,
+    html: `<p>Your signup verification code is <strong>${otp}</strong>.</p><p>It expires in 10 minutes. Enter it to activate your account.</p>`,
+  });
+};
+
 export const sendWelcomeEmail = async (user) => {
   await send({
     to: user.email,

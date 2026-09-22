@@ -78,6 +78,7 @@ enum WebhookStatus {
 
 enum OtpPurpose {
   PASSWORD_RESET
+  EMAIL_VERIFICATION
 }
 
 enum PaymentMode {
@@ -101,8 +102,9 @@ model User {
 
   role UserRole @default(USER)
 
-  kycStatus KycStatus @default(PENDING)
-  isActive  Boolean   @default(true)
+  kycStatus        KycStatus @default(PENDING)
+  isActive         Boolean   @default(true)
+  isEmailVerified Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -5,7 +5,10 @@ const password = z
   .min(8, 'Password must be at least 8 characters long')
   .max(72, 'Password must be at most 72 characters long'); // bcrypt's hard limit
 
-const identifier = z.string().trim().min(1, 'Email or phone number is required');
+const identifier = z
+  .string()
+  .trim()
+  .min(1, 'Email or phone number is required');
 const email = z.string().trim().email('A valid email address is required');
 
 export const loginSchema = {
@@ -26,6 +29,13 @@ export const forgotPasswordSchema = {
 };
 
 export const verifyResetOtpSchema = {
+  body: z.object({
+    email,
+    otp: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
+  }),
+};
+
+export const verifySignupOtpSchema = {
   body: z.object({
     email,
     otp: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),

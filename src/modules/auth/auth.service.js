@@ -1,29 +1,29 @@
-import crypto from 'node:crypto';
+import crypto from "node:crypto";
 
-import * as authRepository from './auth.repository.js';
-import * as usersRepository from '../users/user.repository.js';
-import * as notificationService from '../notifications/notification.service.js';
+import * as authRepository from "./auth.repository.js";
+import * as usersRepository from "../users/user.repository.js";
+import * as notificationService from "../notifications/notification.service.js";
 
-import { hashValue, compareValue } from '../../utils/hash.js';
+import { hashValue, compareValue } from "../../utils/hash.js";
 import {
   signAccessToken,
   signPasswordResetToken,
   verifyPasswordResetToken,
-} from '../../utils/jwt.js';
+} from "../../utils/jwt.js";
 
 import {
   REFRESH_TOKEN_TTL_DAYS,
   OTP_TTL_MINUTES,
   OTP_MAX_ATTEMPTS,
-} from '../../utils/constants.js';
+} from "../../utils/constants.js";
 
 import {
   UnauthorizedError,
   ForbiddenError,
   ValidationError,
-} from '../../utils/errors.js';
+} from "../../utils/errors.js";
 
-const isEmail = (identifier) => identifier.includes('@');
+const isEmail = (identifier) => identifier.includes("@");
 
 const resolveUserByIdentifier = async (
   identifier,
@@ -41,15 +41,28 @@ const resolveUserByIdentifier = async (
 };
 
 const generateRefreshToken = () => {
-  return crypto.randomBytes(40).toString('hex');
+  return crypto.randomBytes(40).toString("hex");
 };
 
 const hashToken = (token) => {
-  return crypto.createHash('sha256').update(token).digest('hex');
+  return crypto.createHash("sha256").update(token).digest("hex");
 };
 
 const generateOtp = () => {
   return crypto.randomInt(100000, 1000000).toString();
+};
+
+const sendEmailVerificationOtp = async (user) => {
+  await authRepository.invalidateActiveOtpCodes(user.id, "EMAIL_VERIFICATION");
+
+  const otp = generateOtp();
+  await authRepository.createOtpCode({
+    userId: user.id,
+    codeHash: await hashValue(otp),
+    purpose: "EMAIL_VERIFICATION",
+    expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000),
+  });
+  await notificationService.sendSignupVerificationOtpEmail(user, otp);
 };
 
 const issueSession = async (user, { deviceInfo, ipAddress } = {}) => {
@@ -89,17 +102,29 @@ export const login = async ({
   });
 
   if (!user) {
-    throw new UnauthorizedError('Invalid email/phone or password');
+    throw new UnauthorizedError(
+      "No account was found with that email or phone number.",
+      "INVALID_IDENTIFIER",
+    );
   }
 
   if (!user.isActive) {
-    throw new ForbiddenError('This account has been deactivated');
+    throw new ForbiddenError("This account has been deactivated");
   }
 
   const passwordMatches = await compareValue(password, user.passwordHash);
 
   if (!passwordMatches) {
-    throw new UnauthorizedError('Invalid email/phone or password');
+    throw new UnauthorizedError("Incorrect password.", "INVALID_PASSWORD");
+  }
+
+  if (!user.isEmailVerified) {
+    await sendEmailVerificationOtp(user);
+    throw new ForbiddenError(
+      "Your email is not verified. A new verification code has been sent.",
+      "EMAIL_UNVERIFIED",
+      { email: user.email },
+    );
   }
 
   const { accessToken, refreshToken } = await issueSession(user, {
@@ -122,7 +147,7 @@ export const refreshAccessToken = async ({
   ipAddress,
 }) => {
   if (!refreshToken) {
-    throw new ValidationError('Refresh token is required');
+    throw new ValidationError("Refresh token is required");
   }
 
   const tokenHash = hashToken(refreshToken);
@@ -131,14 +156,14 @@ export const refreshAccessToken = async ({
 
   if (!session || session.revokedAt || session.expiresAt < new Date()) {
     throw new UnauthorizedError(
-      'Session is invalid or has expired, please log in again',
+      "Session is invalid or has expired, please log in again",
     );
   }
 
   const user = await usersRepository.getUserByIdForAuth(session.userId);
 
-  if (!user || !user.isActive) {
-    throw new UnauthorizedError('Account is no longer active');
+  if (!user || !user.isActive || !user.isEmailVerified) {
+    throw new UnauthorizedError("Account is no longer active");
   }
 
   // Revoke the old refresh-token session.
@@ -152,11 +177,11 @@ export const refreshAccessToken = async ({
 };
 
 export const logout = async (refreshToken) => {
-  if (!refreshToken) {
-    throw new ValidationError('Refresh token is required');
+  // Logout is deliberately idempotent: even if a cookie has already expired
+  // or been cleared, the controller can still clear client-side auth state.
+  if (refreshToken) {
+    await authRepository.revokeSessionByTokenHash(hashToken(refreshToken));
   }
-
-  await authRepository.revokeSessionByTokenHash(hashToken(refreshToken));
 };
 
 export const logoutAllDevices = async (userId) => {
@@ -171,7 +196,7 @@ export const forgotPassword = async (email) => {
   const user = await usersRepository.getUserByEmail(email);
 
   if (user) {
-    await authRepository.invalidateActiveOtpCodes(user.id, 'PASSWORD_RESET');
+    await authRepository.invalidateActiveOtpCodes(user.id, "PASSWORD_RESET");
 
     const otp = generateOtp();
 
@@ -182,7 +207,7 @@ export const forgotPassword = async (email) => {
     await authRepository.createOtpCode({
       userId: user.id,
       codeHash,
-      purpose: 'PASSWORD_RESET',
+      purpose: "PASSWORD_RESET",
       expiresAt,
     });
 
@@ -190,13 +215,13 @@ export const forgotPassword = async (email) => {
   }
 
   return {
-    message: 'If an account exists, a reset code has been sent.',
+    message: "If an account exists, a reset code has been sent.",
   };
 };
 
 export const verifyResetOtp = async ({ email, otp }) => {
   const user = await usersRepository.getUserByEmail(email);
-  const genericError = () => new ValidationError('Invalid or expired code');
+  const genericError = () => new ValidationError("Invalid or expired code");
 
   if (!user) {
     throw genericError();
@@ -204,7 +229,7 @@ export const verifyResetOtp = async ({ email, otp }) => {
 
   const otpRecord = await authRepository.getActiveOtpCode(
     user.id,
-    'PASSWORD_RESET',
+    "PASSWORD_RESET",
   );
 
   if (!otpRecord) {
@@ -213,7 +238,7 @@ export const verifyResetOtp = async ({ email, otp }) => {
 
   if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
     throw new ValidationError(
-      'Too many incorrect attempts. Please request a new code.',
+      "Too many incorrect attempts. Please request a new code.",
     );
   }
 
@@ -228,12 +253,57 @@ export const verifyResetOtp = async ({ email, otp }) => {
   await authRepository.consumeOtpCode(otpRecord.id);
 
   return {
-    resetToken: signPasswordResetToken({ userId: user.id, otpId: otpRecord.id }),
+    resetToken: signPasswordResetToken({
+      userId: user.id,
+      otpId: otpRecord.id,
+    }),
+  };
+};
+
+export const verifySignupOtp = async ({ email, otp }) => {
+  const user = await usersRepository.getUserByEmail(email);
+  const genericError = () => new ValidationError("Invalid or expired code");
+
+  if (!user) {
+    throw genericError();
+  }
+
+  const otpRecord = await authRepository.getActiveOtpCode(
+    user.id,
+    "EMAIL_VERIFICATION",
+  );
+
+  if (!otpRecord) {
+    throw genericError();
+  }
+
+  if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+    throw new ValidationError(
+      "Too many incorrect attempts. Please request a new code.",
+    );
+  }
+
+  const otpMatches = await compareValue(otp, otpRecord.codeHash);
+
+  if (!otpMatches) {
+    await authRepository.incrementOtpAttempts(otpRecord.id);
+    throw genericError();
+  }
+
+  await authRepository.consumeOtpCode(otpRecord.id);
+  const updatedUser = await usersRepository.updateUser(user.id, {
+    isEmailVerified: true,
+  });
+  await notificationService.sendWelcomeEmail(updatedUser);
+
+  return {
+    message: "Email verified successfully. You can now sign in.",
   };
 };
 
 export const resetPassword = async ({ resetToken, newPassword }) => {
-  const genericError = () => new ValidationError('Invalid or expired reset link');
+  const genericError = () =>
+    new ValidationError("Invalid or expired reset link");
   let payload;
 
   try {
@@ -242,7 +312,7 @@ export const resetPassword = async ({ resetToken, newPassword }) => {
     throw genericError();
   }
 
-  if (payload.purpose !== 'PASSWORD_RESET' || !payload.sub || !payload.otpId) {
+  if (payload.purpose !== "PASSWORD_RESET" || !payload.sub || !payload.otpId) {
     throw genericError();
   }
 
@@ -266,6 +336,6 @@ export const resetPassword = async ({ resetToken, newPassword }) => {
   await authRepository.revokeAllSessionsForUser(user.id);
 
   return {
-    message: 'Password reset successful. Please log in again.',
+    message: "Password reset successful. Please log in again.",
   };
 };

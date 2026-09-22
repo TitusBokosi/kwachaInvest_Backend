@@ -1,50 +1,57 @@
-import crypto from 'crypto';
+import crypto from "crypto";
 
-import * as authService from './auth.service.js';
-import { asyncHandler } from '../../utils/asyncHandler.js';
+import * as authService from "./auth.service.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
 
-const REFRESH_COOKIE_PATH = '/api/auth/refresh';
+const AUTH_COOKIE_PATH = "/api/auth";
 
 const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
 
 const baseCookieOptions = {
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
   maxAge: REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
 };
 
 const setAuthCookies = (res, refreshToken) => {
-  const csrfToken = crypto.randomBytes(32).toString('hex');
+  const csrfToken = crypto.randomBytes(32).toString("hex");
 
-  res.cookie('refreshToken', refreshToken, {
+  res.cookie("refreshToken", refreshToken, {
     ...baseCookieOptions,
     httpOnly: true,
-    path: REFRESH_COOKIE_PATH,
+    path: AUTH_COOKIE_PATH,
   });
 
-  res.cookie('csrfToken', csrfToken, {
+  res.cookie("csrfToken", csrfToken, {
     ...baseCookieOptions,
     httpOnly: false,
-    path: '/',
+    path: "/",
   });
 };
 
 const clearAuthCookies = (res) => {
-  res.clearCookie('refreshToken', {
+  res.clearCookie("refreshToken", {
     ...baseCookieOptions,
     httpOnly: true,
-    path: REFRESH_COOKIE_PATH,
+    path: AUTH_COOKIE_PATH,
   });
 
-  res.clearCookie('csrfToken', {
+  // Remove cookies issued before the auth-wide cookie path was introduced.
+  res.clearCookie("refreshToken", {
+    ...baseCookieOptions,
+    httpOnly: true,
+    path: "/api/auth/refresh",
+  });
+
+  res.clearCookie("csrfToken", {
     ...baseCookieOptions,
     httpOnly: false,
-    path: '/',
+    path: "/",
   });
 };
 
 const getDeviceContext = (req) => ({
-  deviceInfo: req.headers['user-agent'],
+  deviceInfo: req.headers["user-agent"],
   ipAddress: req.ip,
 });
 
@@ -94,7 +101,7 @@ export const logout = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: 'Logged out successfully',
+    message: "Logged out successfully",
   });
 });
 
@@ -103,7 +110,7 @@ export const logoutAllDevices = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    message: 'Logged out of all devices',
+    message: "Logged out of all devices",
   });
 });
 
@@ -131,6 +138,15 @@ export const verifyResetOtp = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: result,
+  });
+});
+
+export const verifySignupOtp = asyncHandler(async (req, res) => {
+  const result = await authService.verifySignupOtp(req.body);
+
+  res.status(200).json({
+    success: true,
+    ...result,
   });
 });
 

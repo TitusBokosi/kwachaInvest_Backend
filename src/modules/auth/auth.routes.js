@@ -42,6 +42,13 @@ router.post(
 );
 
 router.post(
+  '/verify-signup-otp',
+  verifyResetOtpRateLimiter,
+  validate(authValidator.verifySignupOtpSchema),
+  authController.verifySignupOtp,
+);
+
+router.post(
   '/reset-password',
   validate(authValidator.resetPasswordSchema),
   authController.resetPassword,
