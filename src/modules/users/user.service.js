@@ -1,21 +1,21 @@
-import crypto from "node:crypto";
+import crypto from 'node:crypto';
 
-import * as usersRepository from "./user.repository.js";
-import * as authRepository from "../auth/auth.repository.js";
-import * as notificationService from "../notifications/notification.service.js";
-import { hashValue, compareValue } from "../../utils/hash.js";
-import { PASSWORD_MIN_LENGTH, OTP_TTL_MINUTES } from "../../utils/constants.js";
+import * as usersRepository from './user.repository.js';
+import * as authRepository from '../auth/auth.repository.js';
+import * as notificationService from '../notifications/notification.service.js';
+import { hashValue, compareValue } from '../../utils/hash.js';
+import { PASSWORD_MIN_LENGTH, OTP_TTL_MINUTES } from '../../utils/constants.js';
 import {
   NotFoundError,
   ConflictError,
   ValidationError,
-} from "../../utils/errors.js";
+} from '../../utils/errors.js';
 
 const generateOtp = () => {
   return crypto.randomInt(100000, 1000000).toString();
 };
 
-const UPDATABLE_FIELDS = ["firstName", "lastName", "email", "phoneNumber"];
+const UPDATABLE_FIELDS = ['firstName', 'lastName', 'email', 'phoneNumber'];
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -40,7 +40,7 @@ export const registerUser = async ({
   );
   if (alreadyExists) {
     throw new ConflictError(
-      "A user with this email or phone number already exists",
+      'A user with this email or phone number already exists',
     );
   }
 
@@ -57,7 +57,7 @@ export const registerUser = async ({
     isEmailVerified: false,
   });
 
-  await authRepository.invalidateActiveOtpCodes(user.id, "EMAIL_VERIFICATION");
+  await authRepository.invalidateActiveOtpCodes(user.id, 'EMAIL_VERIFICATION');
 
   const otp = generateOtp();
   const codeHash = await hashValue(otp);
@@ -66,7 +66,7 @@ export const registerUser = async ({
   await authRepository.createOtpCode({
     userId: user.id,
     codeHash,
-    purpose: "EMAIL_VERIFICATION",
+    purpose: 'EMAIL_VERIFICATION',
     expiresAt,
   });
 
@@ -79,7 +79,7 @@ export const registerUser = async ({
   return {
     ...user,
     message:
-      "Verification code sent to your email. Please confirm it to activate your account.",
+      'Verification code sent to your email. Please confirm it to activate your account.',
   };
   // KYC HOOK: once KYC ships, this is where you'd also create the
   // KycVerification stub row (atomically, via createUserWithKyc).
@@ -91,13 +91,13 @@ export const registerUser = async ({
 
 export const getUserById = async (id) => {
   const user = await usersRepository.getUserById(id);
-  if (!user) throw new NotFoundError("User not found");
+  if (!user) throw new NotFoundError('User not found');
   return user;
 };
 
 export const getUserProfile = async (id) => {
   const profile = await usersRepository.getUserProfile(id);
-  if (!profile) throw new NotFoundError("User not found");
+  if (!profile) throw new NotFoundError('User not found');
   return profile;
 };
 
@@ -107,7 +107,7 @@ export const listUsers = async (filters, pagination) => {
 
 export const searchUsers = async (query, pagination) => {
   if (!query || query.trim().length === 0) {
-    throw new ValidationError("Search query is required");
+    throw new ValidationError('Search query is required');
   }
   return usersRepository.searchUsers(query.trim(), pagination);
 };
@@ -118,7 +118,7 @@ export const searchUsers = async (query, pagination) => {
 
 export const updateUser = async (id, data) => {
   const existing = await usersRepository.getUserById(id);
-  if (!existing) throw new NotFoundError("User not found");
+  if (!existing) throw new NotFoundError('User not found');
 
   // Whitelist: only known-safe fields can be updated this way. Never
   // spread req.body straight into a Prisma update — that would let a
@@ -135,16 +135,16 @@ export const updateUser = async (id, data) => {
   }
 
   if (Object.keys(updateData).length === 0) {
-    throw new ValidationError("No valid fields provided to update");
+    throw new ValidationError('No valid fields provided to update');
   }
 
   if (updateData.email || updateData.phoneNumber) {
     const conflict = await usersRepository.existsByEmailOrPhone(
-      updateData.email ?? "__no_email_change__",
-      updateData.phoneNumber ?? "__no_phone_change__",
+      updateData.email ?? '__no_email_change__',
+      updateData.phoneNumber ?? '__no_phone_change__',
     );
     if (conflict)
-      throw new ConflictError("Email or phone number already in use");
+      throw new ConflictError('Email or phone number already in use');
   }
 
   return usersRepository.updateUser(id, updateData);
@@ -152,10 +152,10 @@ export const updateUser = async (id, data) => {
 
 export const changePassword = async (id, currentPassword, newPassword) => {
   const user = await usersRepository.getUserByIdForAuth(id);
-  if (!user) throw new NotFoundError("User not found");
+  if (!user) throw new NotFoundError('User not found');
 
   const isMatch = await compareValue(currentPassword, user.passwordHash);
-  if (!isMatch) throw new ValidationError("Current password is incorrect");
+  if (!isMatch) throw new ValidationError('Current password is incorrect');
 
   if (!newPassword || newPassword.length < PASSWORD_MIN_LENGTH) {
     throw new ValidationError(
@@ -172,13 +172,13 @@ export const changePassword = async (id, currentPassword, newPassword) => {
 
 export const deactivateUser = async (id) => {
   const existing = await usersRepository.getUserById(id);
-  if (!existing) throw new NotFoundError("User not found");
+  if (!existing) throw new NotFoundError('User not found');
   return usersRepository.deactivateUser(id);
 };
 
 export const reactivateUser = async (id) => {
   const existing = await usersRepository.getUserById(id);
-  if (!existing) throw new NotFoundError("User not found");
+  if (!existing) throw new NotFoundError('User not found');
   return usersRepository.reactivateUser(id);
 };
 
@@ -190,10 +190,10 @@ export const reactivateUser = async (id) => {
  */
 export const updateUserRole = async (actingAdminId, targetUserId, role) => {
   const target = await usersRepository.getUserById(targetUserId);
-  if (!target) throw new NotFoundError("User not found");
+  if (!target) throw new NotFoundError('User not found');
 
-  if (actingAdminId === targetUserId && role !== "ADMIN") {
-    throw new ValidationError("You cannot change your own role");
+  if (actingAdminId === targetUserId && role !== 'ADMIN') {
+    throw new ValidationError('You cannot change your own role');
   }
 
   if (target.role === role) {
