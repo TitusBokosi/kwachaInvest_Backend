@@ -118,6 +118,41 @@ export const getUserByIdForAuth = async (id) => {
     return prisma.user.findUnique({ where: { id } });
 }
 
+export const getUserByGoogleId = async (googleId) => {
+    return prisma.user.findUnique({ where: { googleId } });
+}
+
+export const createGoogleUser = async ({
+    googleId,
+    email,
+    firstName,
+    lastName,
+    fullName,
+}) => {
+    return prisma.user.create({
+        data: {
+            googleId,
+            email,
+            firstName,
+            lastName,
+            fullName,
+            authProvider: 'GOOGLE',
+            isEmailVerified: true,
+        },
+    });
+}
+
+export const linkGoogleAccount = async (userId, googleId) => {
+    return prisma.user.update({
+        where: { id: userId },
+        data: {
+            googleId,
+            authProvider: 'GOOGLE',
+            isEmailVerified: true,
+        },
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Read — lists (always paginated)
 // ---------------------------------------------------------------------------

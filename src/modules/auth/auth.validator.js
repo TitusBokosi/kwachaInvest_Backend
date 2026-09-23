@@ -18,6 +18,12 @@ export const loginSchema = {
   }),
 };
 
+export const googleAuthSchema = {
+  body: z.object({
+    idToken: z.string().min(1, 'Google ID token is required'),
+  }),
+};
+
 export const refreshSchema = {};
 
 export const logoutSchema = {};

@@ -154,6 +154,12 @@ export const changePassword = async (id, currentPassword, newPassword) => {
   const user = await usersRepository.getUserByIdForAuth(id);
   if (!user) throw new NotFoundError('User not found');
 
+  if (!user.passwordHash) {
+    throw new ValidationError(
+      'This account uses Google sign-in and does not have a password yet.',
+    );
+  }
+
   const isMatch = await compareValue(currentPassword, user.passwordHash);
   if (!isMatch) throw new ValidationError('Current password is incorrect');
 

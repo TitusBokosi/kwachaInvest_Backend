@@ -19,6 +19,13 @@ router.post(
   authController.login,
 );
 
+router.post(
+  '/google',
+  loginRateLimiter,
+  validate(authValidator.googleAuthSchema),
+  authController.googleSignIn,
+);
+
 router.post('/refresh', verifyCsrfToken, authController.refresh);
 
 router.post(
@@ -46,6 +53,13 @@ router.post(
   verifyResetOtpRateLimiter,
   validate(authValidator.verifySignupOtpSchema),
   authController.verifySignupOtp,
+);
+
+router.post(
+  '/resend-signup-otp',
+  verifyResetOtpRateLimiter,
+  validate(authValidator.forgotPasswordSchema), // expects { email }
+  authController.resendSignupOtp,
 );
 
 // Public endpoint: check whether an OTP record exists (unconsumed & unexpired)

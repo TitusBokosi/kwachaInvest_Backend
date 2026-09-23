@@ -4,6 +4,7 @@ jest.mock("../../config/client.js", () => ({
   __esModule: true,
   default: {
     user: {
+      create: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
     },
@@ -49,6 +50,7 @@ import * as authRepository from "./auth.repository.js";
 import * as authService from "./auth.service.js";
 import * as authController from "./auth.controller.js";
 import * as authValidator from "./auth.validator.js";
+import * as googleUtil from "../../utils/google.js";
 import {
   UnauthorizedError,
   ForbiddenError,
@@ -230,6 +232,84 @@ describe("Auth module", () => {
         expect(result.refreshToken).toEqual(expect.any(String));
         expect(result.user.passwordHash).toBeUndefined();
         expect(result.user.email).toBe(activeUser.email);
+      });
+    });
+
+    describe("signInWithGoogle", () => {
+      it("issues a session and returns a sanitized user for a valid Google account", async () => {
+        jest.spyOn(googleUtil, "verifyGoogleIdToken").mockResolvedValue({
+          googleId: "google-123",
+          email: activeUser.email,
+          emailVerified: true,
+          firstName: "Tee",
+          lastName: "Banda",
+          fullName: "Tee Banda",
+        });
+
+        prisma.user.findUnique.mockResolvedValue({
+          ...activeUser,
+          googleId: "google-123",
+          authProvider: "GOOGLE",
+        });
+        jwtUtil.signAccessToken.mockReturnValue("google.jwt.token");
+        prisma.authSession.create.mockResolvedValue({ id: "s-google" });
+
+        const result = await authService.signInWithGoogle({
+          idToken: "google-token",
+          deviceInfo: "Chrome",
+          ipAddress: "1.2.3.4",
+        });
+
+        expect(result.accessToken).toBe("google.jwt.token");
+        expect(result.user.email).toBe(activeUser.email);
+        expect(result.user.passwordHash).toBeUndefined();
+        expect(prisma.authSession.create).toHaveBeenCalled();
+      });
+
+      it("links an existing local account to Google and marks the provider as GOOGLE", async () => {
+        jest.spyOn(googleUtil, "verifyGoogleIdToken").mockResolvedValue({
+          googleId: "google-456",
+          email: activeUser.email,
+          emailVerified: true,
+          firstName: "Tee",
+          lastName: "Banda",
+          fullName: "Tee Banda",
+        });
+
+        prisma.user.findUnique
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            ...activeUser,
+            authProvider: "LOCAL",
+            googleId: null,
+          });
+
+        prisma.user.update.mockResolvedValue({
+          ...activeUser,
+          googleId: "google-456",
+          authProvider: "GOOGLE",
+          isEmailVerified: true,
+        });
+
+        jwtUtil.signAccessToken.mockReturnValue("linked.google.token");
+        prisma.authSession.create.mockResolvedValue({ id: "s-linked" });
+
+        await authService.signInWithGoogle({
+          idToken: "google-token-2",
+          deviceInfo: "Safari",
+          ipAddress: "9.9.9.9",
+        });
+
+        expect(prisma.user.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: activeUser.id },
+            data: expect.objectContaining({
+              googleId: "google-456",
+              authProvider: "GOOGLE",
+              isEmailVerified: true,
+            }),
+          }),
+        );
       });
     });
 

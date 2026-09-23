@@ -21,7 +21,9 @@ import {
   UnauthorizedError,
   ForbiddenError,
   ValidationError,
+  ConflictError,
 } from '../../utils/errors.js';
+import { verifyGoogleIdToken } from '../../utils/google.js';
 
 const isEmail = (identifier) => identifier.includes('@');
 
@@ -112,6 +114,13 @@ export const login = async ({
     throw new ForbiddenError('This account has been deactivated');
   }
 
+  if (!user.passwordHash) {
+    throw new UnauthorizedError(
+      'This account uses Google sign-in. Please continue with Google.',
+      'GOOGLE_ACCOUNT',
+    );
+  }
+
   const passwordMatches = await compareValue(password, user.passwordHash);
 
   if (!passwordMatches) {
@@ -174,6 +183,66 @@ export const refreshAccessToken = async ({
     deviceInfo,
     ipAddress,
   });
+};
+
+export const signInWithGoogle = async ({ idToken, deviceInfo, ipAddress }) => {
+  const profile = await verifyGoogleIdToken(idToken);
+
+  if (!profile.emailVerified) {
+    throw new ForbiddenError(
+      'Your Google account email is not verified.',
+      'GOOGLE_EMAIL_UNVERIFIED',
+    );
+  }
+
+  let user = await usersRepository.getUserByGoogleId(profile.googleId);
+
+  if (!user) {
+    const existingByEmail = await usersRepository.getUserByEmailForAuth(
+      profile.email,
+    );
+
+    if (existingByEmail) {
+      if (
+        existingByEmail.googleId &&
+        existingByEmail.googleId !== profile.googleId
+      ) {
+        throw new ConflictError(
+          'This email is already linked to a different Google account.',
+        );
+      }
+
+      user = await usersRepository.linkGoogleAccount(
+        existingByEmail.id,
+        profile.googleId,
+      );
+    } else {
+      user = await usersRepository.createGoogleUser({
+        googleId: profile.googleId,
+        email: profile.email,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        fullName: profile.fullName,
+      });
+    }
+  }
+
+  if (!user.isActive) {
+    throw new ForbiddenError('This account has been deactivated');
+  }
+
+  const { accessToken, refreshToken } = await issueSession(user, {
+    deviceInfo,
+    ipAddress,
+  });
+
+  const { passwordHash, ...safeUser } = user;
+
+  return {
+    accessToken,
+    refreshToken,
+    user: safeUser,
+  };
 };
 
 export const logout = async (refreshToken) => {
@@ -310,6 +379,18 @@ export const checkOtpExistsForEmail = async (email) => {
     'EMAIL_VERIFICATION',
   );
   return !!otp;
+};
+
+export const sendVerificationOtpToEmail = async (email) => {
+  const user = await usersRepository.getUserByEmail(email);
+  if (!user)
+    return {
+      message: 'If an account exists, a verification code has been sent.',
+    };
+
+  await sendEmailVerificationOtp(user);
+
+  return { message: 'Verification code sent' };
 };
 
 export const resetPassword = async ({ resetToken, newPassword }) => {

@@ -20,6 +20,11 @@ enum UserRole {
   ADMIN
 }
 
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+}
+
 enum KycStatus {
   PENDING
   VERIFIED
@@ -97,8 +102,10 @@ model User {
   lastName     String
   fullName     String
   email        String   @unique
-  phoneNumber  String   @unique
-  passwordHash String
+  phoneNumber  String?  @unique
+  passwordHash String?
+  googleId     String?  @unique
+  authProvider AuthProvider @default(LOCAL)
 
   role UserRole @default(USER)
 

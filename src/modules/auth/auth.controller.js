@@ -55,6 +55,24 @@ const getDeviceContext = (req) => ({
   ipAddress: req.ip,
 });
 
+export const googleSignIn = asyncHandler(async (req, res) => {
+  const { idToken } = req.body;
+
+  const result = await authService.signInWithGoogle({
+    idToken,
+    ...getDeviceContext(req),
+  });
+
+  setAuthCookies(res, result.refreshToken);
+
+  const { refreshToken, ...safeResult } = result;
+
+  res.status(200).json({
+    success: true,
+    data: safeResult,
+  });
+});
+
 export const login = asyncHandler(async (req, res) => {
   const { identifier, password } = req.body;
 
@@ -161,6 +179,24 @@ export const otpStatus = asyncHandler(async (req, res) => {
   const exists = await authService.checkOtpExistsForEmail(email);
 
   res.status(200).json({ success: true, data: { exists } });
+});
+
+export const resendSignupOtp = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res
+      .status(400)
+      .json({ success: false, message: 'email is required' });
+  }
+
+  await authService.sendVerificationOtpToEmail(email);
+
+  res
+    .status(200)
+    .json({
+      success: true,
+      message: 'Verification code resent if account exists.',
+    });
 });
 
 export const resetPassword = asyncHandler(async (req, res) => {

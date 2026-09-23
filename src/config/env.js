@@ -19,6 +19,16 @@ const envSchema = z.object({
     .string()
     .url('APP_BASE_URL must be a full URL, e.g. https://api.kwachainvest.mw'),
 
+  FRONTEND_URL: z
+    .string()
+    .url('FRONTEND_URL must be a full URL, e.g. http://localhost:5173')
+    .default('http://localhost:5173'),
+
+  GOOGLE_CLIENT_ID: z
+    .string()
+    .min(1, 'GOOGLE_CLIENT_ID is required for Google sign-in')
+    .default('your-google-client-id.apps.googleusercontent.com'),
+
   PAYCHANGU_SECRET_KEY: z.string().min(1, 'PAYCHANGU_SECRET_KEY is required'),
   PAYCHANGU_WEBHOOK_SECRET: z
     .string()
