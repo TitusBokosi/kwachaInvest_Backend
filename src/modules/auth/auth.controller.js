@@ -55,24 +55,6 @@ const getDeviceContext = (req) => ({
   ipAddress: req.ip,
 });
 
-export const googleSignIn = asyncHandler(async (req, res) => {
-  const { idToken } = req.body;
-
-  const result = await authService.signInWithGoogle({
-    idToken,
-    ...getDeviceContext(req),
-  });
-
-  setAuthCookies(res, result.refreshToken);
-
-  const { refreshToken, ...safeResult } = result;
-
-  res.status(200).json({
-    success: true,
-    data: safeResult,
-  });
-});
-
 export const login = asyncHandler(async (req, res) => {
   const { identifier, password } = req.body;
 

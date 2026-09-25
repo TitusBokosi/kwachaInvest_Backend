@@ -22,7 +22,6 @@ enum UserRole {
 
 enum AuthProvider {
   LOCAL
-  GOOGLE
 }
 
 enum KycStatus {
@@ -104,7 +103,6 @@ model User {
   email        String   @unique
   phoneNumber  String?  @unique
   passwordHash String?
-  googleId     String?  @unique
   authProvider AuthProvider @default(LOCAL)
 
   role UserRole @default(USER)

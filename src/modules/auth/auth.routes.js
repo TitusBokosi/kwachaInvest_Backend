@@ -19,13 +19,6 @@ router.post(
   authController.login,
 );
 
-router.post(
-  '/google',
-  loginRateLimiter,
-  validate(authValidator.googleAuthSchema),
-  authController.googleSignIn,
-);
-
 router.post('/refresh', verifyCsrfToken, authController.refresh);
 
 router.post(

@@ -156,7 +156,7 @@ export const changePassword = async (id, currentPassword, newPassword) => {
 
   if (!user.passwordHash) {
     throw new ValidationError(
-      'This account uses Google sign-in and does not have a password yet.',
+      'This account does not have a password yet.',
     );
   }
 
