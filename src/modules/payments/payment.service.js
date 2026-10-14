@@ -127,19 +127,40 @@ export const initiateMobileMoneyWithdrawal = async (
   userId,
   { savingsAccountId, amount, provider, phoneNumber },
 ) => {
+  console.log('[withdrawal] START', {
+    userId,
+    savingsAccountId,
+    amount,
+    provider,
+  });
+  const t0 = Date.now();
+
+  console.log('[withdrawal] step 1: getWithdrawalBreakdown...');
   const breakdown = await savingsService.getWithdrawalBreakdown(
     userId,
     savingsAccountId,
     amount,
   );
+  console.log('[withdrawal] step 1 OK', { breakdown, ms: Date.now() - t0 });
 
+  console.log('[withdrawal] step 2: listMobileMoneyOperators...');
   const operators = await listMobileMoneyOperators();
+  console.log('[withdrawal] step 2 OK', {
+    operatorCount: operators?.length,
+    ms: Date.now() - t0,
+  });
+
+  console.log('[withdrawal] step 3: matchOperatorRefId...');
   const operatorRefId = matchOperatorRefId(operators, provider);
+  console.log('[withdrawal] step 3 OK', { operatorRefId, ms: Date.now() - t0 });
 
   const reference = crypto.randomUUID();
 
+  console.log('[withdrawal] step 4: decrementBalance...');
   await savingsService.decrementBalance(savingsAccountId, breakdown.amount);
+  console.log('[withdrawal] step 4 OK', { ms: Date.now() - t0 });
 
+  console.log('[withdrawal] step 5: createTransaction...');
   const transaction = await transactionService.createTransaction({
     savingsAccountId,
     provider,
@@ -148,8 +169,13 @@ export const initiateMobileMoneyWithdrawal = async (
     amount: breakdown.amount,
     idempotencyKey: reference,
   });
+  console.log('[withdrawal] step 5 OK', {
+    transactionId: transaction.id,
+    ms: Date.now() - t0,
+  });
 
   if (breakdown.isEarly) {
+    console.log('[withdrawal] step 6: recordAuditLog (early withdrawal)...');
     await recordAuditLog({
       userId,
       action: 'EARLY_WITHDRAWAL_PENALTY_APPLIED',
@@ -163,8 +189,10 @@ export const initiateMobileMoneyWithdrawal = async (
         payoutAmount: breakdown.payoutAmount,
       },
     });
+    console.log('[withdrawal] step 6 OK', { ms: Date.now() - t0 });
   }
 
+  console.log('[withdrawal] step 7: createPaymentGatewayTransaction...');
   const gatewayTransaction = await paymentModel.createPaymentGatewayTransaction(
     {
       transactionId: transaction.id,
@@ -172,22 +200,51 @@ export const initiateMobileMoneyWithdrawal = async (
       status: 'INITIATED',
     },
   );
+  console.log('[withdrawal] step 7 OK', {
+    gatewayTransactionId: gatewayTransaction.id,
+    ms: Date.now() - t0,
+  });
 
   let payoutResponse;
   try {
+    console.log(
+      '[withdrawal] step 8: paychangu.initiateMobileMoneyPayout — CALLING PAYCHANGU NOW',
+      {
+        mobile: phoneNumber,
+        operatorRefId,
+        amount: breakdown.payoutAmount,
+        chargeId: reference,
+      },
+    );
     payoutResponse = await paychangu.initiateMobileMoneyPayout({
       mobile: phoneNumber,
       operatorRefId,
       amount: breakdown.payoutAmount,
       chargeId: reference,
     });
+    console.log('[withdrawal] step 8 OK', {
+      payoutResponse,
+      ms: Date.now() - t0,
+    });
   } catch (err) {
+    // THIS is almost certainly where your 400 is coming from, given the
+    // 19.8s duration. Log the REAL error before it gets swallowed into
+    // the generic ValidationError message.
+    console.error('[withdrawal] step 8 FAILED — this is likely your 400', {
+      ms: Date.now() - t0,
+      errorMessage: err.message,
+      errorCode: err.code, // e.g. ECONNABORTED for a timeout
+      paychanguResponseStatus: err.response?.status,
+      paychanguResponseData: err.response?.data, // <-- the actual reason PayChangu rejected it
+    });
+
     await savingsService.incrementBalance(savingsAccountId, breakdown.amount);
     await paymentModel.updatePaymentGatewayTransaction(gatewayTransaction.id, {
       status: 'FAILED',
       responsePayload: err.response?.data ?? { message: err.message },
     });
     await transactionService.updateTransactionStatus(transaction.id, 'FAILED');
+
     throw new ValidationError(
       'Unable to initiate the withdrawal. Please try again.',
     );
@@ -197,12 +254,16 @@ export const initiateMobileMoneyWithdrawal = async (
     payoutResponse.data?.transaction?.charge_id ??
     payoutResponse.data?.transaction?.ref_id;
 
+  console.log(
+    '[withdrawal] step 9: updatePaymentGatewayTransaction (PENDING)...',
+  );
   await paymentModel.updatePaymentGatewayTransaction(gatewayTransaction.id, {
     gatewayReference: gatewayChargeId ? String(gatewayChargeId) : null,
     status: 'PENDING',
     responsePayload: payoutResponse,
   });
 
+  console.log('[withdrawal] DONE — success', { ms: Date.now() - t0 });
   return transactionService.updateTransactionStatus(
     transaction.id,
     'PROCESSING',

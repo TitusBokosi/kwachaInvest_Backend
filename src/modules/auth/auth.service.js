@@ -63,7 +63,11 @@ const sendEmailVerificationOtp = async (user) => {
     purpose: 'EMAIL_VERIFICATION',
     expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000),
   });
-  await notificationService.sendSignupVerificationOtpEmail(user, otp);
+
+  // Do not block the request on external mail delivery. The OTP is already
+  // persisted, so the client can continue while the email is sent in the
+  // background.
+  void notificationService.sendSignupVerificationOtpEmail(user, otp);
 };
 
 const issueSession = async (user, { deviceInfo, ipAddress } = {}) => {
@@ -207,9 +211,7 @@ export const forgotPassword = async (email) => {
     await authRepository.invalidateActiveOtpCodes(user.id, 'PASSWORD_RESET');
 
     const otp = generateOtp();
-
     const codeHash = await hashValue(otp);
-
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
     await authRepository.createOtpCode({
@@ -219,7 +221,7 @@ export const forgotPassword = async (email) => {
       expiresAt,
     });
 
-    await notificationService.sendPasswordResetOtpEmail(user, otp);
+    void notificationService.sendPasswordResetOtpEmail(user, otp);
   }
 
   return {
@@ -268,7 +270,12 @@ export const verifyResetOtp = async ({ email, otp }) => {
   };
 };
 
-export const verifySignupOtp = async ({ email, otp }) => {
+export const verifySignupOtp = async ({
+  email,
+  otp,
+  deviceInfo,
+  ipAddress,
+}) => {
   const user = await usersRepository.getUserByEmail(email);
   const genericError = () => new ValidationError('Invalid or expired code');
 
@@ -304,8 +311,16 @@ export const verifySignupOtp = async ({ email, otp }) => {
   });
   await notificationService.sendWelcomeEmail(updatedUser);
 
+  const { accessToken, refreshToken } = await issueSession(updatedUser, {
+    deviceInfo,
+    ipAddress,
+  });
+
   return {
-    message: 'Email verified successfully. You can now sign in.',
+    message: 'Email verified successfully.',
+    accessToken,
+    refreshToken,
+    user: updatedUser,
   };
 };
 

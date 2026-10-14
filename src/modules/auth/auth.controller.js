@@ -142,11 +142,19 @@ export const verifyResetOtp = asyncHandler(async (req, res) => {
 });
 
 export const verifySignupOtp = asyncHandler(async (req, res) => {
-  const result = await authService.verifySignupOtp(req.body);
+  const result = await authService.verifySignupOtp({
+    ...req.body,
+    deviceInfo: req.headers['user-agent'],
+    ipAddress: req.ip,
+  });
+
+  setAuthCookies(res, result.refreshToken);
+
+  const { refreshToken, ...safeResult } = result;
 
   res.status(200).json({
     success: true,
-    ...result,
+    data: safeResult,
   });
 });
 
@@ -173,12 +181,10 @@ export const resendSignupOtp = asyncHandler(async (req, res) => {
 
   await authService.sendVerificationOtpToEmail(email);
 
-  res
-    .status(200)
-    .json({
-      success: true,
-      message: 'Verification code resent if account exists.',
-    });
+  res.status(200).json({
+    success: true,
+    message: 'Verification code resent if account exists.',
+  });
 });
 
 export const resetPassword = asyncHandler(async (req, res) => {

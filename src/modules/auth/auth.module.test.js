@@ -362,6 +362,23 @@ describe('Auth module', () => {
         );
         expect(result.message).toMatch(/if an account exists/i);
       });
+
+      it('returns before the OTP email delivery completes', async () => {
+        prisma.user.findUnique.mockResolvedValue(activeUser);
+        prisma.otpCode.updateMany.mockResolvedValue({ count: 0 });
+        hashUtil.hashValue.mockResolvedValue('hashed-otp');
+        prisma.otpCode.create.mockResolvedValue({ id: 'otp1' });
+        notificationService.sendPasswordResetOtpEmail.mockImplementation(
+          () => new Promise((resolve) => setTimeout(resolve, 800)),
+        );
+
+        const start = Date.now();
+        const result = await authService.forgotPassword(activeUser.email);
+        const elapsed = Date.now() - start;
+
+        expect(result.message).toMatch(/if an account exists/i);
+        expect(elapsed).toBeLessThan(600);
+      });
     });
 
     describe('password reset', () => {
@@ -415,7 +432,9 @@ describe('Auth module', () => {
           expect.objectContaining({
             where: expect.objectContaining({
               id: 'otp1',
+              consumedAt: null,
               resetTokenUsedAt: null,
+              expiresAt: { gt: expect.any(Date) },
             }),
           }),
         );

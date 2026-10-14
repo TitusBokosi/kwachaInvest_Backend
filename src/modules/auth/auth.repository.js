@@ -100,8 +100,9 @@ export const consumePasswordResetToken = async ({ otpId, userId }) => {
       id: otpId,
       userId,
       purpose: 'PASSWORD_RESET',
-      consumedAt: { not: null },
+      consumedAt: null,
       resetTokenUsedAt: null,
+      expiresAt: { gt: new Date() },
     },
     data: { resetTokenUsedAt: new Date() },
   });
