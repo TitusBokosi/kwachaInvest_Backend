@@ -188,7 +188,14 @@ export const resendSignupOtp = asyncHandler(async (req, res) => {
 });
 
 export const resetPassword = asyncHandler(async (req, res) => {
-  const result = await authService.resetPassword(req.body);
+  const normalizedBody = {
+    resetToken: req.body.resetToken ?? req.body.token,
+    newPassword: req.body.newPassword ?? req.body.password,
+    confirmNewPassword:
+      req.body.confirmNewPassword ?? req.body.newPassword ?? req.body.password,
+  };
+
+  const result = await authService.resetPassword(normalizedBody);
 
   res.status(200).json({
     success: true,

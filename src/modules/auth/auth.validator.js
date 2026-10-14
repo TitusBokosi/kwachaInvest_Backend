@@ -45,12 +45,44 @@ export const verifySignupOtpSchema = {
 export const resetPasswordSchema = {
   body: z
     .object({
-      resetToken: z.string().min(1, 'Reset token is required'),
-      newPassword: password,
-      confirmNewPassword: z.string(),
+      resetToken: z.string().min(1, 'Reset token is required').optional(),
+      token: z.string().optional(),
+      newPassword: password.optional(),
+      password: password.optional(),
+      confirmNewPassword: z.string().optional(),
     })
-    .refine((data) => data.newPassword === data.confirmNewPassword, {
-      message: 'Passwords do not match',
-      path: ['confirmNewPassword'],
+    .superRefine((data, ctx) => {
+      const normalizedToken = data.resetToken ?? data.token;
+      if (!normalizedToken) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['resetToken'],
+          message: 'Reset token is required',
+        });
+      }
+
+      const normalizedPassword = data.newPassword ?? data.password;
+      if (!normalizedPassword) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['newPassword'],
+          message: 'Password is required',
+        });
+      }
+
+      const confirmationValue =
+        data.confirmNewPassword ?? normalizedPassword ?? '';
+
+      if (
+        normalizedPassword &&
+        confirmationValue &&
+        normalizedPassword !== confirmationValue
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['confirmNewPassword'],
+          message: 'Passwords do not match',
+        });
+      }
     }),
 };

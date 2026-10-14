@@ -382,7 +382,7 @@ describe('Auth module', () => {
     });
 
     describe('password reset', () => {
-      it('issues a reset-only JWT after a correct OTP is verified', async () => {
+      it('issues a reset-only JWT after a correct OTP is verified without consuming the OTP early', async () => {
         prisma.user.findUnique.mockResolvedValue(activeUser);
         prisma.otpCode.findFirst.mockResolvedValue({
           id: 'otp1',
@@ -403,6 +403,12 @@ describe('Auth module', () => {
           userId: 'u1',
           otpId: 'otp1',
         });
+        expect(prisma.otpCode.update).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'otp1' },
+            data: expect.objectContaining({ consumedAt: expect.any(Date) }),
+          }),
+        );
       });
 
       it('updates the password and revokes sessions only with an unused verified reset token', async () => {
@@ -590,6 +596,14 @@ describe('Auth module', () => {
         confirmNewPassword: 'different',
       });
       expect(result.success).toBe(false);
+    });
+
+    it('resetPasswordSchema accepts the legacy single-password payload shape', () => {
+      const result = authValidator.resetPasswordSchema.body.safeParse({
+        resetToken: 'token-123',
+        password: 'newpassword1',
+      });
+      expect(result.success).toBe(true);
     });
 
     it('verifyResetOtpSchema requires an email and six-digit code', () => {

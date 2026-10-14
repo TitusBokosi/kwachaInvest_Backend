@@ -260,8 +260,9 @@ export const verifyResetOtp = async ({ email, otp }) => {
     throw genericError();
   }
 
-  await authRepository.consumeOtpCode(otpRecord.id);
-
+  // Do not consume the OTP here. The reset JWT is the single-use redeem token.
+  // If we mark the OTP as consumed during verification, the later reset request
+  // cannot match the OTP record and returns "invalid or expired reset link".
   return {
     resetToken: signPasswordResetToken({
       userId: user.id,
@@ -347,13 +348,26 @@ export const sendVerificationOtpToEmail = async (email) => {
   return { message: 'Verification code sent' };
 };
 
-export const resetPassword = async ({ resetToken, newPassword }) => {
+export const resetPassword = async ({
+  resetToken,
+  token,
+  newPassword,
+  password,
+}) => {
   const genericError = () =>
     new ValidationError('Invalid or expired reset link');
+
+  const effectiveResetToken = resetToken ?? token;
+  const effectivePassword = newPassword ?? password;
+
+  if (!effectiveResetToken || !effectivePassword) {
+    throw genericError();
+  }
+
   let payload;
 
   try {
-    payload = verifyPasswordResetToken(resetToken);
+    payload = verifyPasswordResetToken(effectiveResetToken);
   } catch {
     throw genericError();
   }
@@ -375,7 +389,7 @@ export const resetPassword = async ({ resetToken, newPassword }) => {
     throw genericError();
   }
 
-  const newPasswordHash = await hashValue(newPassword);
+  const newPasswordHash = await hashValue(effectivePassword);
 
   await usersRepository.updatePasswordHash(user.id, newPasswordHash);
 
