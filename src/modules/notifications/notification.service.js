@@ -4,7 +4,9 @@ const send = async ({ to, subject, html, text }) => {
   try {
     await mailer.sendMail({ from: FROM_ADDRESS, to, subject, html, text });
   } catch (err) {
-    console.error(`Failed to send email "${subject}" to ${to}:`, err.message);
+    const message = `Failed to send email "${subject}" to ${to}: ${err.message}`;
+    console.error(message);
+    throw new Error(message);
   }
 };
 
