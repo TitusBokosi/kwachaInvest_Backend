@@ -7,6 +7,13 @@ const phoneNumber = z
     .trim()
     .regex(/^\+?[0-9]{9,15}$/, "Phone number must be 9-15 digits, optionally starting with +");
 
+export const listSavedPaymentMethodsSchema = {
+    query: z.object({
+        page: z.coerce.number().int().positive().optional(),
+        pageSize: z.coerce.number().int().positive().max(100).optional(),
+    }),
+};
+
 export const initiateMobileMoneyDepositSchema = {
     body: z.object({
         savingsAccountId,

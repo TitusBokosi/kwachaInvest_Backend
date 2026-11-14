@@ -25,6 +25,12 @@ router.get(
   transactionController.getMyTransactionById
 );
 
+router.get(
+  "/:id",
+  validate(transactionValidator.transactionIdParamSchema),
+  transactionController.getTransactionById
+);
+
 // ---------------------------------------------------------------------------
 // Admin-only
 // ---------------------------------------------------------------------------
@@ -35,12 +41,6 @@ router.get(
   "/",
   validate(transactionValidator.listAllTransactionsSchema),
   transactionController.listAllTransactions
-);
-
-router.get(
-  "/:id",
-  validate(transactionValidator.transactionIdParamSchema),
-  transactionController.getTransactionByIdAdmin
 );
 
 export default router;

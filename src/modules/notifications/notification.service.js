@@ -6,7 +6,6 @@ const send = async ({ to, subject, html, text }) => {
   } catch (err) {
     const message = `Failed to send email "${subject}" to ${to}: ${err.message}`;
     console.error(message);
-    throw new Error(message);
   }
 };
 
@@ -25,9 +24,18 @@ export const sendPasswordResetOtpEmail = async (user, otp) => {
 export const sendSignupVerificationOtpEmail = async (user, otp) => {
   await send({
     to: user.email,
-    subject: 'Verify your KwachaInvest account',
-    text: `Your signup verification code is ${otp}. It expires in 10 minutes. Enter it to activate your account.`,
-    html: `<p>Your signup verification code is <strong>${otp}</strong>.</p><p>It expires in 10 minutes. Enter it to activate your account.</p>`,
+    subject: 'Verify your KwachaInvest email',
+    text: `Your email verification code is ${otp}. It expires in 10 minutes.`,
+    html: `<p>Your email verification code is <strong>${otp}</strong>.</p><p>It expires in 10 minutes.</p>`,
+  });
+};
+
+export const sendPasswordChangeOtpEmail = async (user, otp) => {
+  await send({
+    to: user.email,
+    subject: 'Your KwachaInvest password change code',
+    text: `Your password change code is ${otp}. It expires in 10 minutes. If you didn't request this, secure your account immediately.`,
+    html: `<p>Your password change code is <strong>${otp}</strong>.</p><p>It expires in 10 minutes. If you didn't request this, secure your account immediately.</p>`,
   });
 };
 

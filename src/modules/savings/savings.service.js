@@ -185,7 +185,7 @@ export const assertDepositable = async (userId, savingsAccountId) => {
  *
  * - LOCKED accounts: cannot be withdrawn before maturity (time-based) or
  *   before reaching their target (target-based).
- * - FLEXIBLE accounts: remain withdrawable early, but a fixed 15% fee is
+ * - FLEXIBLE accounts: remain withdrawable early, but a fixed 5% fee is
  *   deducted from the payout. The full requested amount leaves the balance.
  *
  * Early flexible withdrawal is a normal, costed path; early locked withdrawal
@@ -264,7 +264,11 @@ export const incrementBalance = async (id, amount, db) => {
 };
 
 export const decrementBalance = async (id, amount, db) => {
-  return savingsModel.decrementBalance(id, amount, db);
+  const updated = await savingsModel.decrementBalance(id, amount, db);
+  if (!updated) {
+    throw new ValidationError('Insufficient balance for this withdrawal');
+  }
+  return updated;
 };
 
 export const markCompleted = async (id, db) => {

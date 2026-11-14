@@ -4,18 +4,35 @@ import * as usersRepository from './user.repository.js';
 import * as authRepository from '../auth/auth.repository.js';
 import * as notificationService from '../notifications/notification.service.js';
 import { hashValue, compareValue } from '../../utils/hash.js';
-import { PASSWORD_MIN_LENGTH, OTP_TTL_MINUTES } from '../../utils/constants.js';
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  OTP_TTL_MINUTES,
+  OTP_MAX_ATTEMPTS,
+} from '../../utils/constants.js';
 import {
   NotFoundError,
   ConflictError,
   ValidationError,
+  TooManyRequestsError,
 } from '../../utils/errors.js';
 
-const generateOtp = () => {
-  return crypto.randomInt(100000, 1000000).toString();
-};
-
 const UPDATABLE_FIELDS = ['firstName', 'lastName', 'email', 'phoneNumber'];
+const OTP_RESEND_COOLDOWN_SECONDS = 15;
+
+const enforceOtpResendCooldown = async (userId, purpose) => {
+  const latestOtp = await authRepository.getLatestOtpCode(userId, purpose);
+  if (!latestOtp?.createdAt) return;
+
+  const elapsedMs = Date.now() - latestOtp.createdAt.getTime();
+  const remainingSeconds =
+    OTP_RESEND_COOLDOWN_SECONDS - Math.floor(elapsedMs / 1000);
+  if (remainingSeconds > 0) {
+    throw new TooManyRequestsError(
+      `Please wait ${remainingSeconds} seconds before requesting another code.`,
+    );
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -28,9 +45,13 @@ export const registerUser = async ({
   phoneNumber,
   password,
 }) => {
-  if (!password || password.length < PASSWORD_MIN_LENGTH) {
+  if (
+    !password ||
+    password.length < PASSWORD_MIN_LENGTH ||
+    password.length > PASSWORD_MAX_LENGTH
+  ) {
     throw new ValidationError(
-      `Password must be at least ${PASSWORD_MIN_LENGTH} characters long`,
+      `Password must be between ${PASSWORD_MIN_LENGTH} and ${PASSWORD_MAX_LENGTH} characters long`,
     );
   }
 
@@ -57,30 +78,18 @@ export const registerUser = async ({
     isEmailVerified: false,
   });
 
-  await authRepository.invalidateActiveOtpCodes(user.id, 'EMAIL_VERIFICATION');
-
-  const otp = generateOtp();
+  const otp = crypto.randomInt(100000, 1000000).toString();
   const codeHash = await hashValue(otp);
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
-
   await authRepository.createOtpCode({
     userId: user.id,
     codeHash,
     purpose: 'EMAIL_VERIFICATION',
     expiresAt,
   });
+  void notificationService.sendSignupVerificationOtpEmail(user, otp);
 
-  // Send the signup verification email asynchronously so the HTTP
-  // response can return quickly and the client can show a "generating
-  // OTP" UI without waiting for the mailer. notificationService will
-  // log failures internally.
-  notificationService.sendSignupVerificationOtpEmail(user, otp);
-
-  return {
-    ...user,
-    message:
-      'Verification code sent to your email. Please confirm it to activate your account.',
-  };
+  return user;
   // KYC HOOK: once KYC ships, this is where you'd also create the
   // KycVerification stub row (atomically, via createUserWithKyc).
 };
@@ -140,17 +149,37 @@ export const updateUser = async (id, data) => {
 
   if (updateData.email || updateData.phoneNumber) {
     const conflict = await usersRepository.existsByEmailOrPhone(
-      updateData.email ?? '__no_email_change__',
-      updateData.phoneNumber ?? '__no_phone_change__',
+      updateData.email,
+      updateData.phoneNumber,
+      id,
     );
     if (conflict)
       throw new ConflictError('Email or phone number already in use');
   }
 
-  return usersRepository.updateUser(id, updateData);
+  if (updateData.email && updateData.email !== existing.email) {
+    updateData.isEmailVerified = false;
+  }
+
+  const updatedUser = await usersRepository.updateUser(id, updateData);
+  if (updateData.isEmailVerified === false) {
+    await authRepository.invalidateActiveOtpCodes(id, 'EMAIL_VERIFICATION');
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const codeHash = await hashValue(otp);
+    const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+    await authRepository.createOtpCode({
+      userId: id,
+      codeHash,
+      purpose: 'EMAIL_VERIFICATION',
+      expiresAt,
+    });
+    void notificationService.sendSignupVerificationOtpEmail(updatedUser, otp);
+  }
+
+  return updatedUser;
 };
 
-export const changePassword = async (id, currentPassword, newPassword) => {
+export const requestPasswordChangeOtp = async (id, currentPassword) => {
   const user = await usersRepository.getUserByIdForAuth(id);
   if (!user) throw new NotFoundError('User not found');
 
@@ -163,17 +192,78 @@ export const changePassword = async (id, currentPassword, newPassword) => {
   const isMatch = await compareValue(currentPassword, user.passwordHash);
   if (!isMatch) throw new ValidationError('Current password is incorrect');
 
-  if (!newPassword || newPassword.length < PASSWORD_MIN_LENGTH) {
+  await enforceOtpResendCooldown(user.id, 'PASSWORD_CHANGE');
+  await authRepository.invalidateActiveOtpCodes(user.id, 'PASSWORD_CHANGE');
+  const otp = crypto.randomInt(100000, 1000000).toString();
+  const codeHash = await hashValue(otp);
+  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+  await authRepository.createOtpCode({
+    userId: user.id,
+    codeHash,
+    purpose: 'PASSWORD_CHANGE',
+    expiresAt,
+  });
+  void notificationService.sendPasswordChangeOtpEmail(user, otp);
+
+  return { message: 'A verification code has been sent to your email.' };
+};
+
+export const changePassword = async (
+  id,
+  { currentPassword, newPassword, confirmNewPassword, otp },
+) => {
+  const user = await usersRepository.getUserByIdForAuth(id);
+  if (!user) throw new NotFoundError('User not found');
+
+  if (!user.passwordHash) {
+    throw new ValidationError('This account does not have a password yet.');
+  }
+
+  const isMatch = await compareValue(currentPassword, user.passwordHash);
+  if (!isMatch) throw new ValidationError('Current password is incorrect');
+
+  if (
+    !newPassword ||
+    newPassword.length < PASSWORD_MIN_LENGTH ||
+    newPassword.length > PASSWORD_MAX_LENGTH
+  ) {
     throw new ValidationError(
-      `New password must be at least ${PASSWORD_MIN_LENGTH} characters long`,
+      `New password must be between ${PASSWORD_MIN_LENGTH} and ${PASSWORD_MAX_LENGTH} characters long`,
+    );
+  }
+  if (newPassword !== confirmNewPassword) {
+    throw new ValidationError('Passwords do not match');
+  }
+  if (newPassword === currentPassword) {
+    throw new ValidationError(
+      'New password must be different from the current password',
     );
   }
 
+  const genericError = () => new ValidationError('Invalid or expired code');
+  const otpRecord = await authRepository.getActiveOtpCode(
+    user.id,
+    'PASSWORD_CHANGE',
+  );
+  if (!otpRecord || otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+    throw genericError();
+  }
+
+  if (!(await compareValue(otp, otpRecord.codeHash))) {
+    await authRepository.incrementOtpAttempts(otpRecord.id);
+    throw genericError();
+  }
+
+  const consumedOtp = await authRepository.consumeOtpCodeForPurpose({
+    otpId: otpRecord.id,
+    userId: user.id,
+    purpose: 'PASSWORD_CHANGE',
+  });
+  if (consumedOtp.count !== 1) throw genericError();
+
   const newPasswordHash = await hashValue(newPassword);
   await usersRepository.updatePasswordHash(id, newPasswordHash);
-  // Note: on a real deployment, this is also the point to revoke all
-  // existing auth sessions for this user (see auth.repository.revokeAllForUser)
-  // so a stolen token can't keep working after a password change.
+  // Self-service password changes deliberately preserve active sessions.
 };
 
 export const deactivateUser = async (id) => {

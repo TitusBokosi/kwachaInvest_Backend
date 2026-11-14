@@ -94,6 +94,23 @@ export const getAllSavingsAccounts = async (filters = {}, pagination = {}) => {
     ...(filters.status && { status: filters.status }),
     ...(filters.type && { type: filters.type }),
     ...(filters.userId && { userId: filters.userId }),
+    ...(filters.q && {
+      OR: [
+        { id: { contains: filters.q, mode: 'insensitive' } },
+        { name: { contains: filters.q, mode: 'insensitive' } },
+        {
+          user: {
+            is: { fullName: { contains: filters.q, mode: 'insensitive' } },
+          },
+        },
+        {
+          user: {
+            is: { email: { contains: filters.q, mode: 'insensitive' } },
+          },
+        },
+        { user: { is: { phoneNumber: { contains: filters.q } } } },
+      ],
+    }),
   };
 
   const [data, total] = await withTransaction([

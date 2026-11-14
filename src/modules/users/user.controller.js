@@ -27,9 +27,16 @@ export const updateMe = asyncHandler(async (req, res) => {
 })
 
 export const changeMyPassword = asyncHandler(async (req, res) => {
-    const { currentPassword, newPassword } = req.body;
-    await usersService.changePassword(req.user.id, currentPassword, newPassword);
+    await usersService.changePassword(req.user.id, req.body);
     sendSuccess(res, { message: "Password updated successfully" });
+})
+
+export const requestMyPasswordChangeOtp = asyncHandler(async (req, res) => {
+    const result = await usersService.requestPasswordChangeOtp(
+        req.user.id,
+        req.body.currentPassword,
+    );
+    sendSuccess(res, { message: result.message });
 })
 
 export const deactivateMe = asyncHandler(async (req, res) => {

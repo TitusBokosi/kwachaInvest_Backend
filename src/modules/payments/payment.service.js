@@ -34,8 +34,8 @@ export const listMobileMoneyOperators = async () => {
   return response.data ?? response;
 };
 
-export const listMySavedPaymentMethods = async (userId) => {
-  return paymentModel.findSavedPaymentMethodsForUser(userId);
+export const listMySavedPaymentMethods = async (userId, pagination) => {
+  return paymentModel.findSavedPaymentMethodsForUser(userId, pagination);
 };
 
 export const deleteMySavedPaymentMethod = async (
@@ -78,6 +78,23 @@ export const initiateMobileMoneyDeposit = async (
     },
   );
 
+  try {
+    await paymentModel.upsertSavedPaymentMethod({
+      userId,
+      provider,
+      operatorRefId,
+      phoneNumber,
+      isVerified: false,
+    });
+  } catch (error) {
+    await paymentModel.updatePaymentGatewayTransaction(gatewayTransaction.id, {
+      status: 'FAILED',
+      responsePayload: { message: 'Unable to save payment method' },
+    });
+    await transactionService.updateTransactionStatus(transaction.id, 'FAILED');
+    throw error;
+  }
+
   let chargeResponse;
   try {
     chargeResponse = await paychangu.chargeMobileMoney({
@@ -111,14 +128,6 @@ export const initiateMobileMoneyDeposit = async (
     transaction.id,
     'PROCESSING',
   );
-
-  await paymentModel.upsertSavedPaymentMethod({
-    userId,
-    provider,
-    operatorRefId,
-    phoneNumber,
-    isVerified: false,
-  });
 
   return updatedTransaction;
 };
@@ -458,15 +467,12 @@ export const handlePaychanguWebhook = async (rawBody, signatureHeader) => {
       }
 
       if (transaction.provider && transaction.payerPhoneNumber) {
-        const existingMethods =
-          await paymentModel.findSavedPaymentMethodsForUser(
+        const existingMethod =
+          await paymentModel.findSavedPaymentMethodByUserProviderPhone(
             transaction.savingsAccount.userId,
+            transaction.provider,
+            transaction.payerPhoneNumber,
           );
-        const existingMethod = existingMethods.find(
-          (m) =>
-            m.provider === transaction.provider &&
-            m.phoneNumber === transaction.payerPhoneNumber,
-        );
         if (existingMethod) {
           await paymentModel.upsertSavedPaymentMethod({
             userId: transaction.savingsAccount.userId,

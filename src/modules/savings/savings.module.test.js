@@ -9,6 +9,7 @@ jest.mock('../../config/client.js', () => ({
       findMany: jest.fn(),
       count: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     timeBasedSavings: { create: jest.fn() },
     targetBasedSavings: { create: jest.fn() },
@@ -216,7 +217,7 @@ describe('Savings module', () => {
     });
 
     describe('getWithdrawalBreakdown — the core locking/penalty logic', () => {
-      it('FLEXIBLE accounts: charge 15% before maturity', async () => {
+      it('FLEXIBLE accounts: charge 5% before maturity', async () => {
         const account = baseAccount({
           withdrawalPolicy: 'FLEXIBLE',
           balance: '1000',
@@ -231,9 +232,9 @@ describe('Savings module', () => {
         );
 
         expect(breakdown.isEarly).toBe(true);
-        expect(breakdown.penaltyPercentage).toBe(15);
-        expect(breakdown.penaltyAmount).toBe(15);
-        expect(breakdown.payoutAmount).toBe(85);
+        expect(breakdown.penaltyPercentage).toBe(5);
+        expect(breakdown.penaltyAmount).toBe(5);
+        expect(breakdown.payoutAmount).toBe(95);
       });
 
       it('LOCKED time-based, before maturity: is blocked', async () => {

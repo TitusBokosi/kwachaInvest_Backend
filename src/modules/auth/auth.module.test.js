@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import jwt from 'jsonwebtoken';
 
 jest.mock('../../config/client.js', () => ({
   __esModule: true,
@@ -12,6 +13,7 @@ jest.mock('../../config/client.js', () => ({
       create: jest.fn(),
       findUnique: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
       deleteMany: jest.fn(),
@@ -22,6 +24,7 @@ jest.mock('../../config/client.js', () => ({
       update: jest.fn(),
       updateMany: jest.fn(),
     },
+    $transaction: jest.fn(),
   },
 }));
 
@@ -50,6 +53,7 @@ import * as authRepository from './auth.repository.js';
 import * as authService from './auth.service.js';
 import * as authController from './auth.controller.js';
 import * as authValidator from './auth.validator.js';
+import { authenticate } from '../../middlewares/auth.middleware.js';
 import {
   UnauthorizedError,
   ForbiddenError,
@@ -102,6 +106,8 @@ describe('Auth module', () => {
 
     it('getActiveSessionsByUser excludes tokenHash from the select', async () => {
       prisma.authSession.findMany.mockResolvedValue([]);
+      prisma.authSession.count.mockResolvedValue(0);
+      prisma.$transaction.mockResolvedValue([[], 0]);
 
       await authRepository.getActiveSessionsByUser('u1');
 
@@ -138,6 +144,18 @@ describe('Auth module', () => {
           expiresAt: { gt: expect.any(Date) },
         },
         orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('getLatestOtpCode reads the newest code regardless of consumption or expiry', async () => {
+      prisma.otpCode.findFirst.mockResolvedValue({ createdAt: new Date() });
+
+      await authRepository.getLatestOtpCode('u1', 'PASSWORD_RESET');
+
+      expect(prisma.otpCode.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'u1', purpose: 'PASSWORD_RESET' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
       });
     });
   });
@@ -178,35 +196,22 @@ describe('Auth module', () => {
         ).rejects.toThrow(UnauthorizedError);
       });
 
-      it('sends a new OTP and returns an email-verification error for an unverified account', async () => {
+      it('blocks an unverified account from creating a login session', async () => {
         prisma.user.findUnique.mockResolvedValue({
           ...activeUser,
           isEmailVerified: false,
         });
         hashUtil.compareValue.mockResolvedValue(true);
-        hashUtil.hashValue.mockResolvedValue('otp-hash');
-        prisma.otpCode.updateMany.mockResolvedValue({ count: 0 });
-        prisma.otpCode.create.mockResolvedValue({ id: 'otp-verify' });
 
         await expect(
           authService.login({
             identifier: activeUser.email,
             password: 'correct-password',
           }),
-        ).rejects.toMatchObject({
-          statusCode: 403,
-          code: 'EMAIL_UNVERIFIED',
-          details: { email: activeUser.email },
-        });
+        ).rejects.toThrow(ForbiddenError);
 
-        expect(prisma.otpCode.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            data: expect.objectContaining({
-              userId: activeUser.id,
-              purpose: 'EMAIL_VERIFICATION',
-            }),
-          }),
-        );
+        expect(prisma.authSession.create).not.toHaveBeenCalled();
+        expect(prisma.otpCode.create).not.toHaveBeenCalled();
       });
 
       it('on success: creates a session, signs a token, and strips passwordHash from the returned user', async () => {
@@ -225,6 +230,7 @@ describe('Auth module', () => {
         expect(jwtUtil.signAccessToken).toHaveBeenCalledWith({
           sub: 'u1',
           role: 'USER',
+          sid: 's1',
         });
         expect(prisma.authSession.create).toHaveBeenCalled();
         expect(result.accessToken).toBe('signed.jwt.token');
@@ -235,10 +241,74 @@ describe('Auth module', () => {
     });
 
     describe('refreshAccessToken', () => {
-      it('throws ValidationError when no token is provided', async () => {
+      it('throws UnauthorizedError when no token is provided', async () => {
         await expect(authService.refreshAccessToken({})).rejects.toThrow(
-          ValidationError,
+          UnauthorizedError,
         );
+      });
+
+      describe('email verification', () => {
+        it('verifies and consumes the email OTP before marking the account verified', async () => {
+          prisma.user.findUnique.mockResolvedValue({
+            ...activeUser,
+            isEmailVerified: false,
+          });
+          prisma.otpCode.findFirst.mockResolvedValue({
+            id: 'otp1',
+            attempts: 0,
+            codeHash: 'otp-hash',
+          });
+          hashUtil.compareValue.mockResolvedValue(true);
+          prisma.otpCode.updateMany.mockResolvedValue({ count: 1 });
+          prisma.user.update.mockResolvedValue({ id: 'u1' });
+
+          await expect(
+            authService.verifyEmail({
+              email: activeUser.email,
+              otp: '123456',
+            }),
+          ).resolves.toMatchObject({ message: expect.stringMatching(/verified/i) });
+
+          expect(prisma.otpCode.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                id: 'otp1',
+                userId: 'u1',
+                purpose: 'EMAIL_VERIFICATION',
+              }),
+            }),
+          );
+          expect(prisma.user.update).toHaveBeenCalledWith({
+            where: { id: 'u1' },
+            data: { isEmailVerified: true },
+          });
+        });
+
+        it('increments attempts and rejects an incorrect verification OTP', async () => {
+          prisma.user.findUnique.mockResolvedValue({
+            ...activeUser,
+            isEmailVerified: false,
+          });
+          prisma.otpCode.findFirst.mockResolvedValue({
+            id: 'otp1',
+            attempts: 0,
+            codeHash: 'otp-hash',
+          });
+          hashUtil.compareValue.mockResolvedValue(false);
+          prisma.otpCode.update.mockResolvedValue({});
+
+          await expect(
+            authService.verifyEmail({
+              email: activeUser.email,
+              otp: '123456',
+            }),
+          ).rejects.toThrow(ValidationError);
+          expect(prisma.otpCode.update).toHaveBeenCalledWith({
+            where: { id: 'otp1' },
+            data: { attempts: { increment: 1 } },
+          });
+          expect(prisma.user.update).not.toHaveBeenCalled();
+        });
       });
 
       it('throws UnauthorizedError for a revoked session', async () => {
@@ -275,7 +345,7 @@ describe('Auth module', () => {
           expiresAt: new Date(Date.now() + 100000),
         });
         prisma.user.findUnique.mockResolvedValue(activeUser);
-        prisma.authSession.update.mockResolvedValue({});
+        prisma.authSession.updateMany.mockResolvedValue({ count: 1 });
         jwtUtil.signAccessToken.mockReturnValue('new.jwt.token');
         prisma.authSession.create.mockResolvedValue({ id: 's2' });
 
@@ -283,8 +353,12 @@ describe('Auth module', () => {
           refreshToken: 'sometoken',
         });
 
-        expect(prisma.authSession.update).toHaveBeenCalledWith({
-          where: { id: 's1' },
+        expect(prisma.authSession.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 's1',
+            revokedAt: null,
+            expiresAt: { gt: expect.any(Date) },
+          },
           data: { revokedAt: expect.any(Date) },
         });
         expect(result.accessToken).toBe('new.jwt.token');
@@ -313,8 +387,16 @@ describe('Auth module', () => {
 
       it('listActiveSessions returns the repository result as-is', async () => {
         prisma.authSession.findMany.mockResolvedValue([{ id: 's1' }]);
+        prisma.authSession.count.mockResolvedValue(1);
+        prisma.$transaction.mockResolvedValue([[{ id: 's1' }], 1]);
         const result = await authService.listActiveSessions('u1');
-        expect(result).toEqual([{ id: 's1' }]);
+        expect(result).toEqual({
+          data: [{ id: 's1' }],
+          total: 1,
+          page: 1,
+          pageSize: 20,
+          totalPages: 1,
+        });
       });
     });
 
@@ -379,10 +461,25 @@ describe('Auth module', () => {
         expect(result.message).toMatch(/if an account exists/i);
         expect(elapsed).toBeLessThan(600);
       });
+
+      it('does not send another reset code during the 15-second resend cooldown', async () => {
+        prisma.user.findUnique.mockResolvedValue(activeUser);
+        prisma.otpCode.findFirst.mockResolvedValue({
+          createdAt: new Date(),
+        });
+
+        const result = await authService.forgotPassword(activeUser.email);
+
+        expect(result.message).toMatch(/if an account exists/i);
+        expect(prisma.otpCode.create).not.toHaveBeenCalled();
+        expect(
+          notificationService.sendPasswordResetOtpEmail,
+        ).not.toHaveBeenCalled();
+      });
     });
 
     describe('password reset', () => {
-      it('issues a reset-only JWT after a correct OTP is verified without consuming the OTP early', async () => {
+      it('verifies the OTP and returns a short-lived reset token', async () => {
         prisma.user.findUnique.mockResolvedValue(activeUser);
         prisma.otpCode.findFirst.mockResolvedValue({
           id: 'otp1',
@@ -390,34 +487,27 @@ describe('Auth module', () => {
           codeHash: 'h',
         });
         hashUtil.compareValue.mockResolvedValue(true);
-        prisma.otpCode.update.mockResolvedValue({});
-        jwtUtil.signPasswordResetToken.mockReturnValue('reset.jwt');
+        jwtUtil.signPasswordResetToken.mockReturnValue('signed.reset.token');
 
         await expect(
-          authService.verifyResetOtp({
+          authService.verifyPasswordResetOtp({
             email: activeUser.email,
             otp: '123456',
           }),
-        ).resolves.toEqual({ resetToken: 'reset.jwt' });
+        ).resolves.toEqual({ resetToken: 'signed.reset.token' });
         expect(jwtUtil.signPasswordResetToken).toHaveBeenCalledWith({
           userId: 'u1',
           otpId: 'otp1',
         });
-        expect(prisma.otpCode.update).not.toHaveBeenCalledWith(
-          expect.objectContaining({
-            where: { id: 'otp1' },
-            data: expect.objectContaining({ consumedAt: expect.any(Date) }),
-          }),
-        );
+        expect(prisma.otpCode.updateMany).not.toHaveBeenCalled();
       });
 
-      it('updates the password and revokes sessions only with an unused verified reset token', async () => {
+      it('changes the password only when the reset token atomically claims its OTP', async () => {
         jwtUtil.verifyPasswordResetToken.mockReturnValue({
           sub: 'u1',
           otpId: 'otp1',
           purpose: 'PASSWORD_RESET',
         });
-        prisma.user.findUnique.mockResolvedValue(activeUser);
         prisma.otpCode.updateMany.mockResolvedValue({ count: 1 });
         hashUtil.hashValue.mockResolvedValue('new-hash');
         prisma.user.update.mockResolvedValue({
@@ -428,8 +518,9 @@ describe('Auth module', () => {
 
         await expect(
           authService.resetPassword({
-            resetToken: 'reset.jwt',
+            resetToken: 'signed.reset.token',
             newPassword: 'newpassword1',
+            confirmNewPassword: 'newpassword1',
           }),
         ).resolves.toMatchObject({
           message: expect.stringMatching(/successful/i),
@@ -438,6 +529,8 @@ describe('Auth module', () => {
           expect.objectContaining({
             where: expect.objectContaining({
               id: 'otp1',
+              userId: 'u1',
+              purpose: 'PASSWORD_RESET',
               consumedAt: null,
               resetTokenUsedAt: null,
               expiresAt: { gt: expect.any(Date) },
@@ -450,40 +543,64 @@ describe('Auth module', () => {
       });
     });
 
-    describe('signup email verification', () => {
-      it('marks the email verified after a correct signup OTP is verified', async () => {
-        prisma.user.findUnique.mockResolvedValue({
-          ...activeUser,
-          isEmailVerified: false,
-        });
-        prisma.otpCode.findFirst.mockResolvedValue({
-          id: 'otp-verify',
-          attempts: 0,
-          codeHash: 'h',
-        });
-        hashUtil.compareValue.mockResolvedValue(true);
-        prisma.otpCode.update.mockResolvedValue({});
-        prisma.user.update.mockResolvedValue({
-          ...activeUser,
-          isEmailVerified: true,
-        });
+  });
 
-        await expect(
-          authService.verifySignupOtp({
-            email: activeUser.email,
-            otp: '123456',
-          }),
-        ).resolves.toMatchObject({
-          message: expect.stringMatching(/verified/i),
-        });
+  describe('authentication middleware', () => {
+    const makeRequest = () => ({
+      headers: {
+        authorization: `Bearer ${jwt.sign(
+          { sub: 'u1', role: 'USER', sid: 's1' },
+          process.env.JWT_SECRET,
+        )}`,
+      },
+    });
 
-        expect(prisma.user.update).toHaveBeenCalledWith(
-          expect.objectContaining({
-            where: { id: 'u1' },
-            data: { isEmailVerified: true },
-          }),
-        );
+    it('rejects access tokens whose session has been revoked', async () => {
+      prisma.authSession.findUnique.mockResolvedValue({
+        userId: 'u1',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { isActive: true, isEmailVerified: true, role: 'USER' },
       });
+      const next = jest.fn();
+
+      await authenticate(makeRequest(), {}, next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(UnauthorizedError));
+    });
+
+    it('accepts a token only while its session and user are active', async () => {
+      prisma.authSession.findUnique.mockResolvedValue({
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { isActive: true, isEmailVerified: true, role: 'USER' },
+      });
+      const next = jest.fn();
+      const req = makeRequest();
+
+      await authenticate(req, {}, next);
+
+      expect(req.user).toMatchObject({
+        id: 'u1',
+        role: 'USER',
+        sessionId: 's1',
+      });
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    it('blocks protected access until the email is verified', async () => {
+      prisma.authSession.findUnique.mockResolvedValue({
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { isActive: true, isEmailVerified: false, role: 'USER' },
+      });
+      const next = jest.fn();
+
+      await authenticate(makeRequest(), {}, next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
     });
   });
 
@@ -550,7 +667,7 @@ describe('Auth module', () => {
     });
 
     it('forgotPassword spreads the service result (message) into the response body', async () => {
-      const req = { body: { identifier: 'nobody@example.com' } };
+      const req = { body: { email: 'nobody@example.com' } };
       const res = buildRes();
       const next = jest.fn();
       prisma.user.findUnique.mockResolvedValue(null);
@@ -578,44 +695,22 @@ describe('Auth module', () => {
       ).toBe(true);
     });
 
-    it('resetPasswordSchema rejects a non-6-digit otp', () => {
-      const result = authValidator.resetPasswordSchema.body.safeParse({
-        identifier: 'a@b.com',
+    it('verifyPasswordResetOtpSchema rejects a non-6-digit otp', () => {
+      const result = authValidator.verifyPasswordResetOtpSchema.body.safeParse({
+        email: 'a@b.com',
         otp: '12',
-        newPassword: 'newpassword1',
-        confirmNewPassword: 'newpassword1',
       });
       expect(result.success).toBe(false);
     });
 
     it('resetPasswordSchema rejects mismatched password confirmation', () => {
       const result = authValidator.resetPasswordSchema.body.safeParse({
-        identifier: 'a@b.com',
-        otp: '123456',
+        resetToken: 'token',
         newPassword: 'newpassword1',
         confirmNewPassword: 'different',
       });
       expect(result.success).toBe(false);
     });
 
-    it('resetPasswordSchema accepts the legacy single-password payload shape', () => {
-      const result = authValidator.resetPasswordSchema.body.safeParse({
-        resetToken: 'token-123',
-        password: 'newpassword1',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('verifyResetOtpSchema requires an email and six-digit code', () => {
-      expect(
-        authValidator.verifyResetOtpSchema.body.safeParse({}).success,
-      ).toBe(false);
-      expect(
-        authValidator.verifyResetOtpSchema.body.safeParse({
-          email: 'a@b.com',
-          otp: '123456',
-        }).success,
-      ).toBe(true);
-    });
   });
 });

@@ -14,7 +14,11 @@ router.get(
   paymentController.listMobileMoneyOperators,
 );
 
-router.get('/saved-methods', paymentController.listMySavedPaymentMethods);
+router.get(
+  '/saved-methods',
+  validate(paymentValidator.listSavedPaymentMethodsSchema),
+  paymentController.listMySavedPaymentMethods,
+);
 
 router.delete(
   '/saved-methods/:id',

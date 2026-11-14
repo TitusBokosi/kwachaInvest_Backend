@@ -150,10 +150,11 @@ export const incrementBalance = async (id, amount, db = prisma) => {
 };
 
 export const decrementBalance = async (id, amount, db = prisma) => {
-  return db.savingsAccount.update({
-    where: { id },
+  const result = await db.savingsAccount.updateMany({
+    where: { id, balance: { gte: amount } },
     data: { balance: { decrement: amount } },
   });
+  return result.count > 0;
 };
 
 export const markCompleted = async (id, db = prisma) => {

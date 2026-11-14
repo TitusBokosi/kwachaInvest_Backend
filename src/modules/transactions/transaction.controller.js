@@ -19,6 +19,14 @@ export const getMyTransactionById = asyncHandler(async (req, res) => {
     sendSuccess(res, { data: transaction });
 })
 
+export const getTransactionById = asyncHandler(async (req, res) => {
+  const transaction =
+    req.user.role === "ADMIN"
+      ? await transactionService.getTransactionByIdAdmin(req.params.id)
+      : await transactionService.getMyTransactionById(req.user.id, req.params.id);
+  sendSuccess(res, { data: transaction });
+});
+
 export const listAllTransactions = asyncHandler(async (req, res) => {
     const { page, pageSize, userId, savingsAccountId, type, status, from, to } = req.query;
 

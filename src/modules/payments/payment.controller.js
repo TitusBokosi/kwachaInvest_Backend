@@ -8,7 +8,10 @@ export const listMobileMoneyOperators = asyncHandler(async (req, res) => {
 });
 
 export const listMySavedPaymentMethods = asyncHandler(async (req, res) => {
-  const methods = await paymentService.listMySavedPaymentMethods(req.user.id);
+  const methods = await paymentService.listMySavedPaymentMethods(
+    req.user.id,
+    req.query,
+  );
   sendSuccess(res, { data: methods });
 });
 

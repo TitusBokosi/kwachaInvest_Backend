@@ -19,6 +19,8 @@ jest.mock("../../config/client.js", () => ({
     },
     otpCode: {
       create: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
       updateMany: jest.fn(),
     },
     $transaction: jest.fn(),
@@ -30,8 +32,15 @@ jest.mock("../../utils/hash.js", () => ({
   compareValue: jest.fn(),
 }));
 
+jest.mock("../notifications/notification.service.js", () => ({
+  sendWelcomeEmail: jest.fn(),
+  sendSignupVerificationOtpEmail: jest.fn(),
+  sendPasswordChangeOtpEmail: jest.fn(),
+}));
+
 import prisma from "../../config/client.js";
 import * as hashUtil from "../../utils/hash.js";
+import * as notificationService from "../notifications/notification.service.js";
 import * as usersRepository from "./user.repository.js";
 import * as usersService from "./user.service.js";
 import * as usersController from "./user.controller.js";
@@ -166,7 +175,7 @@ describe("Users module", () => {
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
 
-    it("registerUser hashes the password and creates the user with a derived fullName", async () => {
+    it("registerUser creates an unverified user and sends a hashed verification OTP", async () => {
       prisma.user.count.mockResolvedValue(0);
       hashUtil.hashValue.mockResolvedValue("hashed-password");
       prisma.user.create.mockResolvedValue({
@@ -190,6 +199,21 @@ describe("Users module", () => {
         },
       });
       expect(result).toMatchObject({ id: "u1", email: "tee@example.com" });
+      expect(prisma.otpCode.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: "u1",
+            purpose: "EMAIL_VERIFICATION",
+            codeHash: "hashed-password",
+          }),
+        }),
+      );
+      expect(
+        notificationService.sendSignupVerificationOtpEmail,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "tee@example.com" }),
+        expect.any(String),
+      );
     });
 
     it("getUserById throws NotFoundError when the user doesn't exist", async () => {
@@ -245,6 +269,88 @@ describe("Users module", () => {
       ).rejects.toThrow(ConflictError);
     });
 
+    it("changing an email marks it unverified and sends a new verification OTP", async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: "u1",
+        email: "old@example.com",
+        firstName: "Tee",
+        lastName: "Banda",
+      });
+      prisma.user.count.mockResolvedValue(0);
+      prisma.user.update.mockResolvedValue({
+        id: "u1",
+        email: "new@example.com",
+        isEmailVerified: false,
+      });
+      hashUtil.hashValue.mockResolvedValue("hashed-otp");
+      prisma.otpCode.updateMany.mockResolvedValue({ count: 0 });
+      prisma.otpCode.create.mockResolvedValue({ id: "otp1" });
+
+      await usersService.updateUser("u1", { email: "new@example.com" });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: "u1" },
+        data: { email: "new@example.com", isEmailVerified: false },
+      });
+      expect(prisma.otpCode.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ purpose: "EMAIL_VERIFICATION" }),
+        }),
+      );
+      expect(
+        notificationService.sendSignupVerificationOtpEmail,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "new@example.com" }),
+        expect.any(String),
+      );
+    });
+
+    it("requestPasswordChangeOtp verifies the current password and emails an OTP", async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: "u1",
+        email: "tee@example.com",
+        passwordHash: "old-hash",
+      });
+      hashUtil.compareValue.mockResolvedValue(true);
+      hashUtil.hashValue.mockResolvedValue("otp-hash");
+      prisma.otpCode.updateMany.mockResolvedValue({ count: 0 });
+      prisma.otpCode.create.mockResolvedValue({ id: "otp1" });
+
+      await usersService.requestPasswordChangeOtp("u1", "current-password");
+
+      expect(prisma.otpCode.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: "u1",
+            purpose: "PASSWORD_CHANGE",
+            codeHash: "otp-hash",
+          }),
+        }),
+      );
+      expect(
+        notificationService.sendPasswordChangeOtpEmail,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "tee@example.com" }),
+        expect.any(String),
+      );
+    });
+
+    it("requestPasswordChangeOtp rejects requests within the 15-second cooldown", async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: "u1",
+        passwordHash: "old-hash",
+      });
+      hashUtil.compareValue.mockResolvedValue(true);
+      prisma.otpCode.findFirst.mockResolvedValue({
+        createdAt: new Date(),
+      });
+
+      await expect(
+        usersService.requestPasswordChangeOtp("u1", "current-password"),
+      ).rejects.toMatchObject({ statusCode: 429 });
+      expect(prisma.otpCode.create).not.toHaveBeenCalled();
+    });
+
     it("changePassword throws ValidationError when the current password is wrong", async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: "u1",
@@ -253,7 +359,12 @@ describe("Users module", () => {
       hashUtil.compareValue.mockResolvedValue(false);
 
       await expect(
-        usersService.changePassword("u1", "wrong-password", "newpassword1"),
+        usersService.changePassword("u1", {
+          currentPassword: "wrong-password",
+          newPassword: "newpassword1",
+          confirmNewPassword: "newpassword1",
+          otp: "123456",
+        }),
       ).rejects.toThrow(ValidationError);
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
@@ -263,15 +374,22 @@ describe("Users module", () => {
         id: "u1",
         passwordHash: "old-hash",
       });
+      prisma.otpCode.findFirst.mockResolvedValue({
+        id: "otp1",
+        attempts: 0,
+        codeHash: "otp-hash",
+      });
       hashUtil.compareValue.mockResolvedValue(true);
+      prisma.otpCode.updateMany.mockResolvedValue({ count: 1 });
       hashUtil.hashValue.mockResolvedValue("new-hash");
       prisma.user.update.mockResolvedValue({ id: "u1", updatedAt: new Date() });
 
-      await usersService.changePassword(
-        "u1",
-        "current-password",
-        "newpassword1",
-      );
+      await usersService.changePassword("u1", {
+        currentPassword: "current-password",
+        newPassword: "newpassword1",
+        confirmNewPassword: "newpassword1",
+        otp: "123456",
+      });
 
       expect(hashUtil.compareValue).toHaveBeenCalledWith(
         "current-password",
@@ -281,6 +399,14 @@ describe("Users module", () => {
         where: { id: "u1" },
         data: { passwordHash: "new-hash" },
       });
+      expect(prisma.otpCode.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: "otp1",
+            purpose: "PASSWORD_CHANGE",
+          }),
+        }),
+      );
     });
 
     it("updateUserRole blocks an admin from demoting themselves", async () => {

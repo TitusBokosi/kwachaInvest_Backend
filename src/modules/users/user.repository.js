@@ -184,6 +184,14 @@ export const updatePasswordHash = async (id, newPasswordHash) => {
   return { id: userId, updatedAt };
 };
 
+export const setEmailVerified = async (id) => {
+  const { id: userId } = await prisma.user.update({
+    where: { id },
+    data: { isEmailVerified: true },
+  });
+  return { id: userId, isEmailVerified: true };
+};
+
 export const deactivateUser = async (id) => {
   const userData = await prisma.user.update({
     where: { id },
@@ -212,9 +220,21 @@ export const updateUserRole = async (id, role) => {
 // Checks / counts (cheap — no full row returned)
 // ---------------------------------------------------------------------------
 
-export const existsByEmailOrPhone = async (email, phoneNumber) => {
+export const existsByEmailOrPhone = async (
+  email,
+  phoneNumber,
+  excludeUserId,
+) => {
+  const identifiers = [];
+  if (email !== undefined) identifiers.push({ email });
+  if (phoneNumber !== undefined) identifiers.push({ phoneNumber });
+  if (identifiers.length === 0) return false;
+
   const count = await prisma.user.count({
-    where: { OR: [{ email }, { phoneNumber }] },
+    where: {
+      OR: identifiers,
+      ...(excludeUserId && { NOT: { id: excludeUserId } }),
+    },
   });
   return count > 0;
 };

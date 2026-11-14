@@ -1,11 +1,33 @@
 import prisma from '../../config/client.js';
+import { buildPagination, paginatedResult } from '../../utils/pagination.js';
+import { withTransaction } from '../../utils/withTransaction.js';
 
-export const findSavedPaymentMethodsForUser = async (userId) => {
-  return prisma.mobileMoneyAccount.findMany({
-    where: { userId },
-    orderBy: { updatedAt: 'desc' },
-  });
+export const findSavedPaymentMethodsForUser = async (
+  userId,
+  pagination = {},
+) => {
+  const { skip, take, page, pageSize } = buildPagination(pagination);
+  const where = { userId };
+  const [data, total] = await withTransaction([
+    prisma.mobileMoneyAccount.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { updatedAt: 'desc' },
+    }),
+    prisma.mobileMoneyAccount.count({ where }),
+  ]);
+  return paginatedResult(data, total, page, pageSize);
 };
+
+export const findSavedPaymentMethodByUserProviderPhone = async (
+  userId,
+  provider,
+  phoneNumber,
+) =>
+  prisma.mobileMoneyAccount.findUnique({
+    where: { userId_provider_phoneNumber: { userId, provider, phoneNumber } },
+  });
 
 export const findSavedPaymentMethodById = async (id) => {
   return prisma.mobileMoneyAccount.findUnique({ where: { id } });
@@ -21,7 +43,11 @@ export const upsertSavedPaymentMethod = async ({
   return prisma.mobileMoneyAccount.upsert({
     where: { userId_provider_phoneNumber: { userId, provider, phoneNumber } },
     create: { userId, provider, operatorRefId, phoneNumber, isVerified },
-    update: { operatorRefId, isVerified, updatedAt: new Date() },
+    update: {
+      operatorRefId,
+      ...(isVerified && { isVerified: true }),
+      updatedAt: new Date(),
+    },
   });
 };
 

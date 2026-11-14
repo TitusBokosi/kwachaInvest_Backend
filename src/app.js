@@ -27,10 +27,11 @@ app.use(cors(corsOptions));
 app.use(cookieParser());
 app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
+app.use(generalRateLimiter);
+
 app.use('/api/payments/webhooks', webhookRouter);
 
 app.use(express.json());
-app.use(generalRateLimiter);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });

@@ -1,4 +1,4 @@
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 
 const jsonMessage = (message) => ({ success: false, message });
 
@@ -27,24 +27,19 @@ export const otpRateLimiter = rateLimit({
   message: jsonMessage('Too many attempts. Please try again in a while.'),
 });
 
-const resetKey = (req) =>
-  `${ipKeyGenerator(req.ip)}:${String(req.body?.email || '').trim().toLowerCase()}`;
-
 export const forgotPasswordRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  limit: 3,
+  limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: resetKey,
   message: jsonMessage('Too many reset-code requests. Please try again later.'),
 });
 
 export const verifyResetOtpRateLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
+  windowMs: 60 * 60 * 1000,
   limit: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: resetKey,
   message: jsonMessage('Too many code attempts. Please request a new code.'),
 });
 

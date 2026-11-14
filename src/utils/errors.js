@@ -25,6 +25,12 @@ export class ConflictError extends AppError {
   }
 }
 
+export class TooManyRequestsError extends AppError {
+  constructor(message = "Too many requests") {
+    super(message, 429);
+  }
+}
+
 export class UnauthorizedError extends AppError {
   constructor(message = "Unauthorized", code, details) {
     super(message, 401);

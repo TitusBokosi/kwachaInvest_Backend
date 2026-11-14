@@ -19,10 +19,10 @@ export const getAuditLogs = asyncHandler(async (req, res) => {
 })
 
 export const listSavingsAccounts = asyncHandler(async (req, res) => {
-    const { page, pageSize, status, type, userId } = req.query;
+    const { page, pageSize, status, type, userId, q } = req.query;
 
     const result = await adminService.listSavingsAccounts(
-        { status, type, userId },
+        { status, type, userId, q },
         { page, pageSize }
     );
 

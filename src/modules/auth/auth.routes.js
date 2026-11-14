@@ -9,8 +9,20 @@ import {
 } from '../../middlewares/rateLimit.middleware.js';
 import * as authValidator from './auth.validator.js';
 import { verifyCsrfToken } from '../../middlewares/csrf.middleware.js';
+import { UnauthorizedError } from '../../utils/errors.js';
 
 const router = Router();
+
+const requireRefreshCookie = (req, res, next) => {
+  if (!req.cookies?.refreshToken) {
+    return next(
+      new UnauthorizedError(
+        'Session is invalid or has expired, please log in again',
+      ),
+    );
+  }
+  next();
+};
 
 router.post(
   '/login',
@@ -19,10 +31,30 @@ router.post(
   authController.login,
 );
 
-router.post('/refresh', verifyCsrfToken, authController.refresh);
+router.post(
+  '/verify-email',
+  verifyResetOtpRateLimiter,
+  validate(authValidator.verifyEmailSchema),
+  authController.verifyEmail,
+);
+
+router.post(
+  '/resend-verification',
+  forgotPasswordRateLimiter,
+  validate(authValidator.resendVerificationSchema),
+  authController.resendVerificationEmail,
+);
+
+router.post(
+  '/refresh',
+  requireRefreshCookie,
+  verifyCsrfToken,
+  authController.refresh,
+);
 
 router.post(
   '/logout',
+  authenticate,
   validate(authValidator.logoutSchema),
   authController.logout,
 );
@@ -35,38 +67,26 @@ router.post(
 );
 
 router.post(
-  '/verify-reset-otp',
-  verifyResetOtpRateLimiter,
-  validate(authValidator.verifyResetOtpSchema),
-  authController.verifyResetOtp,
-);
-
-router.post(
-  '/verify-signup-otp',
-  verifyResetOtpRateLimiter,
-  validate(authValidator.verifySignupOtpSchema),
-  authController.verifySignupOtp,
-);
-
-router.post(
-  '/resend-signup-otp',
-  verifyResetOtpRateLimiter,
-  validate(authValidator.forgotPasswordSchema), // expects { email }
-  authController.resendSignupOtp,
-);
-
-// Public endpoint: check whether an OTP record exists (unconsumed & unexpired)
-router.get('/otp-status', authController.otpStatus);
-
-router.post(
   '/reset-password',
+  verifyResetOtpRateLimiter,
   validate(authValidator.resetPasswordSchema),
   authController.resetPassword,
 );
 
+router.post(
+  '/verify-reset-otp',
+  verifyResetOtpRateLimiter,
+  validate(authValidator.verifyPasswordResetOtpSchema),
+  authController.verifyPasswordResetOtp,
+);
+
 router.use(authenticate);
 
-router.get('/sessions', authController.listSessions);
+router.get(
+  '/sessions',
+  validate(authValidator.listSessionsSchema),
+  authController.listSessions,
+);
 router.post('/logout-all', authController.logoutAllDevices);
 
 export default router;

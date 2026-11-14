@@ -74,6 +74,27 @@ describe('Admin module', () => {
         expect.objectContaining({ email: true, phoneNumber: true }),
       );
     });
+
+    it('getAllSavingsAccounts searches account IDs, names, and owners', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+
+      await adminRepository.getAllSavingsAccounts({ q: 'tee' }, {});
+
+      const [args] = prisma.savingsAccount.findMany.mock.calls.at(-1);
+      expect(args.where.OR).toEqual(
+        expect.arrayContaining([
+          { id: { contains: 'tee', mode: 'insensitive' } },
+          { name: { contains: 'tee', mode: 'insensitive' } },
+          {
+            user: {
+              is: {
+                fullName: { contains: 'tee', mode: 'insensitive' },
+              },
+            },
+          },
+        ]),
+      );
+    });
   });
 
   describe('service', () => {

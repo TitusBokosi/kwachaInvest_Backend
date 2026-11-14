@@ -22,6 +22,7 @@ export const savingsAccountListQuerySchema = {
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "PAUSED", "FROZEN"]).optional(),
         type: z.enum(["TIME_BASED", "TARGET_BASED"]).optional(),
         userId: z.string().cuid().optional(),
+        q: z.string().trim().min(1).optional(),
     }),
 };
 

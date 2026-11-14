@@ -3,13 +3,13 @@ import crypto from 'crypto';
 import * as authService from './auth.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 
-const AUTH_COOKIE_PATH = '/api/auth';
+const AUTH_COOKIE_PATH = '/api/auth/refresh';
 
 const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
 
 const baseCookieOptions = {
   secure: process.env.NODE_ENV === 'production',
-  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  sameSite: 'strict',
   maxAge: REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
 };
 
@@ -36,11 +36,11 @@ const clearAuthCookies = (res) => {
     path: AUTH_COOKIE_PATH,
   });
 
-  // Remove cookies issued before the auth-wide cookie path was introduced.
+  // Clear a legacy cookie scoped to the auth prefix as well.
   res.clearCookie('refreshToken', {
     ...baseCookieOptions,
     httpOnly: true,
-    path: '/api/auth/refresh',
+    path: '/api/auth',
   });
 
   res.clearCookie('csrfToken', {
@@ -93,9 +93,7 @@ export const refresh = asyncHandler(async (req, res) => {
 });
 
 export const logout = asyncHandler(async (req, res) => {
-  const { refreshToken } = req.cookies;
-
-  await authService.logout(refreshToken);
+  await authService.logout(req.user.sessionId);
 
   clearAuthCookies(res);
 
@@ -107,6 +105,7 @@ export const logout = asyncHandler(async (req, res) => {
 
 export const logoutAllDevices = asyncHandler(async (req, res) => {
   await authService.logoutAllDevices(req.user.id);
+  clearAuthCookies(res);
 
   res.status(200).json({
     success: true,
@@ -115,11 +114,29 @@ export const logoutAllDevices = asyncHandler(async (req, res) => {
 });
 
 export const listSessions = asyncHandler(async (req, res) => {
-  const sessions = await authService.listActiveSessions(req.user.id);
+  const sessions = await authService.listActiveSessions(req.user.id, req.query);
 
   res.status(200).json({
     success: true,
     data: sessions,
+  });
+});
+
+export const verifyEmail = asyncHandler(async (req, res) => {
+  const result = await authService.verifyEmail(req.body);
+
+  res.status(200).json({
+    success: true,
+    ...result,
+  });
+});
+
+export const resendVerificationEmail = asyncHandler(async (req, res) => {
+  const result = await authService.resendVerificationEmail(req.body.email);
+
+  res.status(200).json({
+    success: true,
+    ...result,
   });
 });
 
@@ -132,73 +149,20 @@ export const forgotPassword = asyncHandler(async (req, res) => {
   });
 });
 
-export const verifyResetOtp = asyncHandler(async (req, res) => {
-  const result = await authService.verifyResetOtp(req.body);
-
-  res.status(200).json({
-    success: true,
-    data: result,
-  });
-});
-
-export const verifySignupOtp = asyncHandler(async (req, res) => {
-  const result = await authService.verifySignupOtp({
-    ...req.body,
-    deviceInfo: req.headers['user-agent'],
-    ipAddress: req.ip,
-  });
-
-  setAuthCookies(res, result.refreshToken);
-
-  const { refreshToken, ...safeResult } = result;
-
-  res.status(200).json({
-    success: true,
-    data: safeResult,
-  });
-});
-
-export const otpStatus = asyncHandler(async (req, res) => {
-  const { email } = req.query;
-  if (!email) {
-    return res
-      .status(400)
-      .json({ success: false, message: 'email is required' });
-  }
-
-  const exists = await authService.checkOtpExistsForEmail(email);
-
-  res.status(200).json({ success: true, data: { exists } });
-});
-
-export const resendSignupOtp = asyncHandler(async (req, res) => {
-  const { email } = req.body;
-  if (!email) {
-    return res
-      .status(400)
-      .json({ success: false, message: 'email is required' });
-  }
-
-  await authService.sendVerificationOtpToEmail(email);
-
-  res.status(200).json({
-    success: true,
-    message: 'Verification code resent if account exists.',
-  });
-});
-
 export const resetPassword = asyncHandler(async (req, res) => {
-  const normalizedBody = {
-    resetToken: req.body.resetToken ?? req.body.token,
-    newPassword: req.body.newPassword ?? req.body.password,
-    confirmNewPassword:
-      req.body.confirmNewPassword ?? req.body.newPassword ?? req.body.password,
-  };
-
-  const result = await authService.resetPassword(normalizedBody);
+  const result = await authService.resetPassword(req.body);
 
   res.status(200).json({
     success: true,
     ...result,
+  });
+});
+
+export const verifyPasswordResetOtp = asyncHandler(async (req, res) => {
+  const result = await authService.verifyPasswordResetOtp(req.body);
+
+  res.status(200).json({
+    success: true,
+    data: result,
   });
 });

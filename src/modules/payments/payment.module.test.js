@@ -4,7 +4,11 @@ jest.mock('../../config/client.js', () => ({
   __esModule: true,
   default: {
     user: { findUnique: jest.fn() },
-    savingsAccount: { findUnique: jest.fn(), update: jest.fn() },
+    savingsAccount: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     transaction: {
       create: jest.fn(),
       update: jest.fn(),
@@ -52,6 +56,7 @@ import prisma from '../../config/client.js';
 import * as paychangu from '../../payments/providers/paychangu.provider.js';
 import * as notificationService from '../notifications/notification.service.js';
 import * as paymentService from './payment.service.js';
+import * as paymentModel from './payment.model.js';
 import * as paymentController from './payment.controller.js';
 import * as paymentValidator from './payment.validator.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
@@ -87,6 +92,27 @@ describe('Payments module', () => {
     paychangu.getMobileMoneyOperators.mockResolvedValue({ data: operators });
   });
 
+  describe('saved payment methods', () => {
+    it('does not downgrade an already verified method on a later charge attempt', async () => {
+      prisma.mobileMoneyAccount.upsert.mockResolvedValue({});
+
+      await paymentModel.upsertSavedPaymentMethod({
+        userId: 'u1',
+        provider: 'TNM',
+        operatorRefId: 'op-tnm-1',
+        phoneNumber: '0991234567',
+        isVerified: false,
+      });
+
+      expect(prisma.mobileMoneyAccount.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ isVerified: false }),
+          update: expect.not.objectContaining({ isVerified: false }),
+        }),
+      );
+    });
+  });
+
   describe('initiateMobileMoneyDeposit', () => {
     it('blocks a deposit into a non-ACTIVE account before ever calling PayChangu', async () => {
       prisma.savingsAccount.findUnique.mockResolvedValue(
@@ -111,6 +137,7 @@ describe('Payments module', () => {
       prisma.paymentGatewayTransaction.create.mockResolvedValue({ id: 'pgt1' });
       paychangu.chargeMobileMoney.mockRejectedValue(new Error('network error'));
       prisma.transaction.update.mockResolvedValue({});
+      prisma.mobileMoneyAccount.upsert.mockResolvedValue({});
 
       await expect(
         paymentService.initiateMobileMoneyDeposit('u1', {
@@ -129,6 +156,11 @@ describe('Payments module', () => {
       expect(prisma.transaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ status: 'FAILED' }),
+        }),
+      );
+      expect(prisma.mobileMoneyAccount.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ isVerified: false }),
         }),
       );
     });
@@ -190,7 +222,7 @@ describe('Payments module', () => {
         balance: '1000',
       });
       prisma.savingsAccount.findUnique.mockResolvedValue(account);
-      prisma.savingsAccount.update.mockResolvedValue({});
+      prisma.savingsAccount.updateMany.mockResolvedValue({ count: 1 });
       prisma.transaction.create.mockResolvedValue({ id: 't1' });
       prisma.auditLog.create.mockResolvedValue({});
       prisma.paymentGatewayTransaction.create.mockResolvedValue({ id: 'pgt1' });
@@ -207,12 +239,12 @@ describe('Payments module', () => {
         phoneNumber: '0991234567',
       });
 
-      expect(prisma.savingsAccount.update).toHaveBeenCalledWith({
-        where: { id: 'sa1' },
+      expect(prisma.savingsAccount.updateMany).toHaveBeenCalledWith({
+        where: { id: 'sa1', balance: { gte: 100 } },
         data: { balance: { decrement: 100 } },
       });
       expect(paychangu.initiateMobileMoneyPayout).toHaveBeenCalledWith(
-        expect.objectContaining({ amount: 85 }),
+        expect.objectContaining({ amount: 95 }),
       );
     });
 
@@ -222,7 +254,7 @@ describe('Payments module', () => {
         timeBasedDetails: { maturityDate: new Date('2020-01-01') },
       });
       prisma.savingsAccount.findUnique.mockResolvedValue(account);
-      prisma.savingsAccount.update.mockResolvedValue({});
+      prisma.savingsAccount.updateMany.mockResolvedValue({ count: 1 });
       prisma.transaction.create.mockResolvedValue({ id: 't1' });
       prisma.paymentGatewayTransaction.create.mockResolvedValue({ id: 'pgt1' });
       paychangu.initiateMobileMoneyPayout.mockResolvedValue({
@@ -243,7 +275,7 @@ describe('Payments module', () => {
 
     it('refunds the FULL amount if the payout call itself fails', async () => {
       prisma.savingsAccount.findUnique.mockResolvedValue(savingsAccount());
-      prisma.savingsAccount.update.mockResolvedValue({});
+      prisma.savingsAccount.updateMany.mockResolvedValue({ count: 1 });
       prisma.transaction.create.mockResolvedValue({ id: 't1' });
       prisma.paymentGatewayTransaction.create.mockResolvedValue({ id: 'pgt1' });
       paychangu.initiateMobileMoneyPayout.mockRejectedValue(
@@ -260,7 +292,7 @@ describe('Payments module', () => {
         }),
       ).rejects.toThrow(ValidationError);
 
-      expect(prisma.savingsAccount.update).toHaveBeenCalledTimes(2);
+      expect(prisma.savingsAccount.update).toHaveBeenCalledTimes(1);
       expect(prisma.savingsAccount.update).toHaveBeenLastCalledWith({
         where: { id: 'sa1' },
         data: { balance: { increment: 100 } },
